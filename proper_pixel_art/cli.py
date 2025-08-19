@@ -43,6 +43,22 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="Produce a transparent background in the output if set."
     )
+    parser.add_argument(
+        "-w",
+        "--pixel-width",
+        dest="pixel_width",
+        type=int,
+        default=None,
+        help="Width of the pixels in the input image. If not set, it will be determined automatically."
+    )
+    parser.add_argument(
+        "-s",
+        "--upscale-factor",
+        dest="upscale_factor",
+        type=int,
+        default=2,
+        help="Image upscale factor."
+    )
     return parser.parse_args()
 
 def resolve_output_path(out_path: Path, input_path: Path, suffix: str = "_pixelated") -> Path:
@@ -66,7 +82,9 @@ def main() -> None:
         img,
         num_colors = args.num_colors,
         pixel_size = args.pixel_size,
-        transparent_background = args.transparent
+        transparent_background = args.transparent,
+        pixel_width = args.pixel_width,
+        initial_upsample_factor = args.upscale_factor
         )
 
     pixelated.save(out_path)

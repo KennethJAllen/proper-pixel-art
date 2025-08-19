@@ -128,7 +128,8 @@ def compute_mesh(
         img: Image.Image,
         canny_thresholds: tuple[int] = (50, 200),
         closure_kernel_size: int = 8,
-        output_dir: Path | None = None
+        output_dir: Path | None = None,
+        pixel_width: int | None = None
         ) -> tuple[list[int], list[int]]:
     """
     Finds grid lines of a high resolution noisy image.
@@ -164,8 +165,9 @@ def compute_mesh(
     # Use Hough transform to detect the pixel lines
     lines_x, lines_y = detect_grid_lines(closed_edges)
 
-    # Get the true width of the pixels
-    pixel_width = get_pixel_width(lines_x, lines_y)
+    if pixel_width is None:
+        # Get the true width of the pixels
+        pixel_width = get_pixel_width(lines_x, lines_y)
 
     # Fill in the gaps between the lines to complete the grid
     mesh_x = homogenize_lines(lines_x, pixel_width)
@@ -187,19 +189,24 @@ def compute_mesh(
 def compute_mesh_with_scaling(
         img: Image.Image,
         upsample_factor: int,
-        output_dir: Path | None = None
+        output_dir: Path | None = None,
+        pixel_width: int | None = None
         ) -> tuple[tuple[list[int], list[int]], Image.Image]:
     """
     Try to compute the mesh on an upsampled image.
     If that yields only the trivial boundary lines, fall back to the original.
     """
     upsampled_img = utils.scale_img(img, upsample_factor)
-    mesh_lines = compute_mesh(upsampled_img, output_dir=output_dir)
+    mesh_lines = compute_mesh(
+        upsampled_img, output_dir=output_dir, pixel_width=pixel_width
+    )
     if not _is_trivial_mesh(mesh_lines):
         return mesh_lines, upsampled_img
 
     # If no mesh is found, then use the original image instead.
-    fallback_mesh_lines = compute_mesh(img, output_dir=output_dir)
+    fallback_mesh_lines = compute_mesh(
+        img, output_dir=output_dir, pixel_width=pixel_width
+    )
     return fallback_mesh_lines, img
 
 def _is_trivial_mesh(img_mesh: tuple[list[int], list[int]]) -> bool:

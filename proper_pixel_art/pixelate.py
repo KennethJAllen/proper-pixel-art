@@ -9,6 +9,7 @@ def pixelate(
         pixel_size: int | None = None,
         transparent_background: bool = False,
         intermediate_dir: Path | None = None,
+        pixel_width: int | None = None
         ) -> Image.Image:
     """
     Computes the true resolution pixel art image.
@@ -33,7 +34,12 @@ def pixelate(
     """
     rgba = image.convert("RGBA")
 
-    mesh_lines, scaled_img = mesh.compute_mesh_with_scaling(rgba, initial_upsample_factor, output_dir=intermediate_dir)
+    mesh_lines, scaled_img = mesh.compute_mesh_with_scaling(
+        rgba,
+        initial_upsample_factor,
+        output_dir=intermediate_dir,
+        pixel_width=pixel_width
+    )
 
     paletted_img = colors.palette_img(scaled_img, num_colors=num_colors)
 
