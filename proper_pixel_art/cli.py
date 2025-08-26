@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
         "-o", "--output",
         dest="out_path",
         type=Path,
-        required=True,
+        default=".",
         help="Path where the pixelated image will be saved. Can be either a directory or a file path."
     )
     parser.add_argument(
