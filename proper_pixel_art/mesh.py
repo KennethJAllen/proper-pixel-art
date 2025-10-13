@@ -60,7 +60,7 @@ def detect_grid_lines(edges: np.ndarray,
     for x1, y1, x2, y2 in hough_lines[:,0]:
         dx, dy = x2 - x1, y2 - y1
         angle = abs(np.arctan2(dy, dx))
-        # vertical if angle > 90- threshold, horizontal if angle < threshold
+        # vertical if angle > 90-threshold, horizontal if angle < threshold
         if angle > np.deg2rad(90-angle_threshold_deg):
             lines_x.append(round((x1 + x2)/2))
         elif angle < np.deg2rad(angle_threshold_deg):
@@ -191,26 +191,29 @@ def compute_mesh(
 
 def compute_mesh_with_scaling(
         img: Image.Image,
-        upsample_factor: int,
+        upscale_factor: int,
         output_dir: Path | None = None,
         pixel_width: int | None = None
-        ) -> tuple[tuple[list[int], list[int]], Image.Image]:
+        ) -> tuple[tuple[list[int], list[int]], int]:
     """
-    Try to compute the mesh on an upsampled image.
-    If that yields only the trivial boundary lines, fall back to the original.
+    Try to compute the mesh on on the image.
+    First upscale the image with a given upscale factor
+    If that yields only the trivial mesh lines, try to compute the mesh on
+    the original image instead.
+    Returns the mesh line coordinates and the scale factor used
     """
-    upsampled_img = utils.scale_img(img, upsample_factor)
+    upscaled_img = utils.scale_img(img, upscale_factor)
     mesh_lines = compute_mesh(
-        upsampled_img, output_dir=output_dir, pixel_width=pixel_width
+        upscaled_img, output_dir=output_dir, pixel_width=pixel_width
     )
     if not _is_trivial_mesh(mesh_lines):
-        return mesh_lines, upsampled_img
+        return mesh_lines, upscale_factor
 
     # If no mesh is found, then use the original image instead.
     fallback_mesh_lines = compute_mesh(
         img, output_dir=output_dir, pixel_width=pixel_width
     )
-    return fallback_mesh_lines, img
+    return fallback_mesh_lines, 1
 
 def _is_trivial_mesh(img_mesh: tuple[list[int], list[int]]) -> bool:
     """

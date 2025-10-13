@@ -1,6 +1,6 @@
 from pathlib import Path
 from collections import Counter
-from PIL import Image, ImageDraw, ImagePalette
+from PIL import Image, ImageDraw
 from PIL.Image import Quantize
 import numpy as np
 from proper_pixel_art import utils
@@ -19,7 +19,7 @@ def palette_img(
         img: Image.Image,
         num_colors: int = 16,
         quantize_method: int = Quantize.MAXCOVERAGE,
-        output_dir: Path | None = None) -> ImagePalette.ImagePalette:
+        output_dir: Path | None = None) -> Image.Image:
     """
     Discretizes the colors in the image img to at most num_colors.
     Saves the quantized image to output_dir if not None.
@@ -33,21 +33,21 @@ def palette_img(
 
     If the colors of the result don't look right, try increasing num_colors.
     """
-    rbg_img = utils.clamp_alpha(img, mode='RGB')
-    quantized_img = rbg_img.quantize(colors=num_colors, method=quantize_method)
+    img_rgb = utils.clamp_alpha(img, mode='RGB')
+    quantized_img = img_rgb.quantize(colors=num_colors, method=quantize_method, dither=Image.Dither.NONE)
     if output_dir is not None:
         quantized_img.save(output_dir / "quantized_original.png")
     return quantized_img
 
-def apply_palette(img: Image.Image, palette: Image.Image, output_dir: Path | None = None) -> Image.Image:
-    """
-    Applies the palette from a previously quantized image.
-    """
-    scaled_img_rgb = utils.clamp_alpha(img, mode='RGB')
-    paletted_img = scaled_img_rgb.quantize(palette=palette, method=1)
-    if output_dir is not None:
-        paletted_img.save(output_dir / "quantized_scaled.png")
-    return paletted_img
+# def apply_palette(img: Image.Image, palette: Image.Image, output_dir: Path | None = None) -> Image.Image:
+#     """
+#     Applies the palette from a previously quantized image.
+#     """
+#     img_rgb = utils.clamp_alpha(img, mode='RGB')
+#     paletted_img = img_rgb.quantize(palette=palette)
+#     if output_dir is not None:
+#         paletted_img.save(output_dir / "quantized_scaled.png")
+#     return paletted_img
 
 def make_background_transparent(image: Image.Image) -> Image.Image:
     """

@@ -70,9 +70,3 @@ def scale_img(img: Image.Image, scale: int) -> Image.Image:
     new_size = w_new, h_new
     scaled_img = img.resize(new_size, resample=Image.Resampling.NEAREST)
     return scaled_img
-
-def naive_downsample_upsample(img: Image.Image, scale: int) -> Image.Image:
-    """Use naive downsample then upsample on image as baseline to compare results."""
-    downsampled = scale_img(img, 1/scale)
-    naive = scale_img(downsampled, scale)
-    return naive

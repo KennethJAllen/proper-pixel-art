@@ -86,7 +86,7 @@ def main() -> None:
         scale_result = args.scale_result,
         transparent_background = args.transparent,
         pixel_width = args.pixel_width,
-        initial_upscale = args.initial_upscale
+        initial_upscale_factor = args.initial_upscale
         )
 
     pixelated.save(out_path)

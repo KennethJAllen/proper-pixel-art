@@ -32,7 +32,7 @@ def downsample(image: Image.Image,
 def pixelate(
         image: Image.Image,
         num_colors: int = 16,
-        initial_upscale: int = 2,
+        initial_upscale_factor: int = 2,
         scale_result: int | None = None,
         transparent_background: bool = False,
         intermediate_dir: Path | None = None,
@@ -50,7 +50,7 @@ def pixelate(
         if it is too low, pixels that should be different colors will be the same color
     - scale_result:
         Upsample result by scale_result factor after algorithm is complete if not None.
-    - initial_upscale:
+    - initial_upscale_factor:
         Upsample original image by this factor. It may help detect lines.
     - transparent_background:
         If True, flood fills each corner of the result with transparent alpha.
@@ -64,21 +64,21 @@ def pixelate(
     image_rgba = image.convert("RGBA")
 
     # Calculate the pixel mesh lines
-    mesh_lines, scaled_img = mesh.compute_mesh_with_scaling(
+    mesh_lines, upscale_factor = mesh.compute_mesh_with_scaling(
         image_rgba,
-        initial_upscale,
+        initial_upscale_factor,
         output_dir=intermediate_dir,
         pixel_width=pixel_width
     )
 
     # Calculate the color palette
-    palette = colors.palette_img(image_rgba, num_colors=num_colors, output_dir=intermediate_dir)
+    paletted_img = colors.palette_img(image_rgba, num_colors=num_colors, output_dir=intermediate_dir)
 
-    # Apply the color palette to the scaled image
-    paletted_img = colors.apply_palette(scaled_img, palette, output_dir=intermediate_dir)
+    # Scale the paletted image to match the dimensions for the calculated mesh
+    scaled_paletted_img = utils.scale_img(paletted_img, upscale_factor)
 
     # Downsample the image to 1 pixel per cell in the mesh
-    result = downsample(paletted_img, mesh_lines, transparent_background=transparent_background)
+    result = downsample(scaled_paletted_img, mesh_lines, transparent_background=transparent_background)
 
     # upscale the result if scale_result is set to an integer
     if scale_result is not None:
