@@ -96,6 +96,7 @@ def main():
         (data_dir / "ash" / "ash.png", 16),
         (data_dir / "pumpkin" / "pumpkin.png", 32),
         (data_dir / "mountain" / "mountain.png", 64),
+        (data_dir / "anchor" / "anchor.png", 16),
         ]
 
     for img_path, num_colors in img_paths_and_colors:
@@ -106,7 +107,7 @@ def main():
             img,
             scale_result = 20,
             num_colors = num_colors,
-            transparent_background = False,
+            transparent_background = True,
             intermediate_dir = output_dir,
             )
         result.save(output_dir / "result.png")

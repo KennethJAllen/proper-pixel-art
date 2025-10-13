@@ -1,9 +1,12 @@
-"""Handles mesh detection from pixel art style images"""
+"""
+Handles mesh detection from pixel art style images
+"""
+
 from pathlib import Path
 from PIL import Image
 import numpy as np
 import cv2
-from proper_pixel_art import utils
+from proper_pixel_art import utils, colors
 
 def close_edges(edges: np.ndarray, kernel_size: int = 10) -> np.ndarray:
     """
@@ -157,7 +160,7 @@ def compute_mesh(
     """
     # Crop border and zero out mostly transparent pixels from alpha
     cropped_img = utils.crop_border(img, num_pixels=2)
-    grey_img = utils.clamp_alpha(cropped_img, mode='L')
+    grey_img = colors.clamp_alpha(cropped_img, mode='L')
 
     # Find edges using Canny edge detection
     edges = cv2.Canny(np.array(grey_img), *canny_thresholds)

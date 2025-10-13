@@ -27,14 +27,15 @@ def test_pixelate_output(asset_name, asset_path):
     # Load the image
     img = Image.open(asset_path)
 
-    # Define test parameters (matching those used in pixelate.py main function)
+    # Define test parameters
     test_params = {
-        "ash": {"num_colors": 16, "result_scale": 20},
-        "bat": {"num_colors": 16, "result_scale": 20},
-        "blob": {"num_colors": 16, "result_scale": 20},
-        "demon": {"num_colors": 64, "result_scale": 20},
-        "mountain": {"num_colors": 64, "result_scale": 20},
-        "pumpkin": {"num_colors": 32, "result_scale": 20},
+        "ash": {"num_colors": 16, "result_scale": 5, "transparent_background": False},
+        "bat": {"num_colors": 16, "result_scale": 5, "transparent_background": True},
+        "blob": {"num_colors": 16, "result_scale": 5, "transparent_background": True},
+        "demon": {"num_colors": 64, "result_scale": 5, "transparent_background": True},
+        "mountain": {"num_colors": 64, "result_scale": 5, "transparent_background": False},
+        "pumpkin": {"num_colors": 32, "result_scale": 5, "transparent_background": False},
+        "anchor": {"num_colors": 16, "result_scale": 5, "transparent_background": True}
     }
 
     params = test_params.get(asset_name, {"num_colors": 16, "result_scale": 20})
@@ -44,7 +45,7 @@ def test_pixelate_output(asset_name, asset_path):
         img,
         num_colors=params["num_colors"],
         scale_result=params["result_scale"],
-        transparent_background=False,
+        transparent_background=params["transparent_background"],
         intermediate_dir=output_dir,
     )
 

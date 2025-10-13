@@ -1,5 +1,5 @@
 """Utility functions"""
-from PIL import Image, ImageDraw, ImageColor
+from PIL import Image, ImageDraw
 
 def crop_border(image : Image.Image, num_pixels: int=1) -> Image.Image:
     """
@@ -11,32 +11,6 @@ def crop_border(image : Image.Image, num_pixels: int=1) -> Image.Image:
     box = (num_pixels, num_pixels, width - num_pixels, height - num_pixels)
     cropped = image.crop(box)
     return cropped
-
-def clamp_alpha(
-        image: Image.Image,
-        alpha_threshold: int = 128,
-        mode: str = 'RGB',
-        background_hex: str = "#000000"
-        ) -> Image.Image:
-    """
-    Convert image to RGB or greyscale,
-    setting pixels bellow alpha threshold to background_color.
-    """
-    if mode not in ('RGB', 'L'):
-        raise ValueError("mode must be 'RGB' or 'L'")
-
-    background_color = ImageColor.getrgb(background_hex)
-
-    base = image.convert(mode)
-    alpha = image.getchannel('A')
-    mask = alpha.point(lambda p: 255 if p >= alpha_threshold else 0)
-
-    background = Image.new('RGB', image.size, background_color)
-    if mode == 'L':
-        background = background.convert('L')
-
-    masked_image = Image.composite(base, background, mask)
-    return masked_image
 
 def overlay_grid_lines(
         image: Image.Image,
