@@ -60,6 +60,9 @@ def scale_img(img: Image.Image, scale: int) -> Image.Image:
     return scaled_img
 
 
+### For pixelating a .gif or mp4. Not fully supported yet
+
+
 def extract_frames_gif(path: str) -> Iterator[tuple[Image.Image, int]]:
     """
     Extract the frames from a .gif file.

@@ -116,7 +116,7 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
       <br><small>Mesh</small>
     </td>
     <td width="33%">
-      <img src="./assets/bat/upsampled.png" style="width:100%;" />
+      <img src="./assets/bat/result.png" style="width:100%;" />
       <br><small>True Pixel Resolution</small>
     </td>
   </tr>
@@ -137,7 +137,7 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
       <br><small>Mesh</small>
     </td>
     <td width="33%">
-      <img src="./assets/ash/upsampled.png" style="width:100%;" />
+      <img src="./assets/ash/result.png" style="width:100%;" />
       <br><small>True Pixel Resolution</small>
     </td>
   </tr>
@@ -158,7 +158,7 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
       <br><small>Mesh</small>
     </td>
     <td width="33%">
-      <img src="./assets/demon/upsampled.png" style="width:100%;" />
+      <img src="./assets/demon/result.png" style="width:100%;" />
       <br><small>True Pixel Resolution</small>
     </td>
   </tr>
@@ -179,7 +179,7 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
       <br><small>Mesh</small>
     </td>
     <td width="33%">
-      <img src="./assets/pumpkin/upsampled.png" style="width:100%;" />
+      <img src="./assets/pumpkin/result.png" style="width:100%;" />
       <br><small>True Pixel Resolution</small>
     </td>
   </tr>
@@ -206,7 +206,7 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
       <br><small>Mesh</small>
     </td>
     <td width="33%">
-      <img src="./assets/mountain/upsampled.png" style="width:100%;" />
+      <img src="./assets/mountain/result.png" style="width:100%;" />
       <br><small>True Pixel Resolution</small>
     </td>
   </tr>
@@ -262,7 +262,7 @@ The current approach to turning pixel art into useable assets for games are eith
 
     - Result upscaled by a factor of $20 \times$ using nearest neighbor.
 
-<img src="./assets/blob/upsampled.png" width="80%" alt="blob upscaled"/>
+<img src="./assets/blob/result.png" width="80%" alt="blob pixelated"/>
 
 ## Testing
 

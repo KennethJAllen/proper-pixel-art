@@ -55,16 +55,3 @@ def fixture_pixelate_png_test_params(assets: Path) -> dict[str, dict]:
         },
     }
     return pixelate_png_test_params
-
-
-@pytest.fixture(name="pixelate_gif_test_params")
-def fixture_pixelate_gif_test_params(assets: Path) -> dict[str, dict]:
-    pixelate_gif_test_params = {
-        "anchor": {
-            "num_colors": 32,
-            "result_scale": 5,
-            "transparent_background": False,
-            "path": assets / "warrior" / "warrior.gif",
-        },
-    }
-    return pixelate_gif_test_params
