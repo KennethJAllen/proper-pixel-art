@@ -273,4 +273,4 @@ To test algorithm changes and verify output quality:
 uv run pytest -s
 ```
 
-The tests run the algorithm on all test assets (`assets/{name}/{name}.png`) and save outputs to `tests/outputs/` for manual visual inspection.
+The tests pixelate all assets in `assets/{name}/{name}.png` and save outputs to `tests/outputs/` for manual inspection.
