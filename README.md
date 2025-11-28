@@ -8,7 +8,7 @@
 
 ## Installation
 
-### Clone the Repository:
+### Clone the Repository
 
 ```bash
 git clone git@github.com:KennethJAllen/proper-pixel-art.git
@@ -51,15 +51,13 @@ uvx --from https://github.com/KennethJAllen/proper-pixel-art.git ppa <input_path
 
 ### Python
 
-#### Simple Example
-
 ```python
 from PIL import Image
 from proper_pixel_art.pixelate import pixelate
 
-image = Image.open('input.png')
+image = Image.open('path/to/input.png')
 result = pixelate(image, num_colors=16)
-result.save('output.png')
+result.save('path/to/output.png')
 ```
 
 #### Parameters
@@ -93,7 +91,23 @@ result.save('output.png')
 
 #### Returns
 
-A PIL image with true pixel resolution and quantized colors. 
+A PIL image with true pixel resolution and quantized colors.
+
+### Web Interface
+
+Local:
+
+```bash
+uv sync --extra web
+uv run ppa-web
+# Opens http://127.0.0.1:7860
+```
+
+Without cloning:
+
+```bash
+uvx --from "proper-pixel-art[web]" ppa-web
+```
 
 ## Examples
 

@@ -1,7 +1,8 @@
 [project]
-name = "proper_pixel_art"
-version = "1.3.0"
+name = "proper-pixel-art"
+version = "1.3.4"
 description = "Converts pixel-art-style images such as those from generative models or low-quality sprite web uploads to true resolution usable assets."
+authors = [{name = "Kenneth Allen"}]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
