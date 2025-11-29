@@ -1,24 +1,41 @@
 [project]
 name = "proper-pixel-art"
-version = "1.3.4"
+version = "1.3.5"
 description = "Converts pixel-art-style images such as those from generative models or low-quality sprite web uploads to true resolution usable assets."
 authors = [{name = "Kenneth Allen"}]
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+keywords = [
+    "pixel-art",
+    "image-processing",
+    "sprites",
+    "game-dev",
+    "generative-ai",
+    "generative-art",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+    "Topic :: Games/Entertainment",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "numpy>=2.2.4",
     "opencv-python>=4.11.0.86",
     "pillow>=11.1.0",
 ]
-packages = [
-    { include = "proper_pixel_art" }
-]
+
+[project.urls]
+Homepage = "https://github.com/KennethJAllen/proper-pixel-art"
+Repository = "https://github.com/KennethJAllen/proper-pixel-art"
+Issues = "https://github.com/KennethJAllen/proper-pixel-art/issues"
 
 [project.optional-dependencies]
 web = ["gradio>=5.0.0"]
 
 [project.scripts]
-cli = "proper_pixel_art.cli:main"
 ppa = "proper_pixel_art.cli:main"
 ppa-web = "proper_pixel_art.web:main"
 
@@ -32,6 +49,13 @@ dev = [
     "pytest>=8.4.2",
     "ruff>=0.14.4",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["proper_pixel_art"]
+exclude = ["assets"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["assets"]
 
 [tool.ruff]
 lint.select = ["I"]
