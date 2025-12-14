@@ -57,7 +57,9 @@ def create_demo():
                 )
 
         with gr.Row():
-            num_colors = gr.Slider(2, 64, value=16, step=1, label="Colors")
+            num_colors = gr.Slider(
+                0, 64, value=16, step=1, label="Colors (0 = skip quantization)"
+            )
             scale = gr.Slider(1, 20, value=1, step=1, label="Scale Result")
 
         with gr.Row():

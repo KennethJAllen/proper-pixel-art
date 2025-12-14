@@ -100,6 +100,71 @@ def get_cell_color(cell_pixels: np.ndarray) -> RGB:
     return cell_color
 
 
+def get_cell_color_skip_quantization(cell_pixels: np.ndarray) -> RGB:
+    """
+    Select representative color by finding the densest color region.
+
+    Used when quantization is skipped (num_colors=0) to preserve original colors
+    while handling noise/grain and filtering out background bleed-in.
+
+    Algorithm (offset binning):
+    1. Quantize RGB space into bins using two offset grids
+       - Grid 1: boundaries at 0, 52, 104, 156, 208
+       - Grid 2: boundaries at 26, 78, 130, 182, 234 (offset by half bin size)
+    2. For each grid, find the bin with the most pixels
+    3. Use the grid that produces the larger dominant cluster
+    4. Return the median color of pixels in that bin
+
+    This avoids bin boundary artifacts: colors straddling one grid's boundary
+    will be grouped together in the other grid.
+
+    Args:
+        cell_pixels: shape (height, width, 3), dtype=uint8
+
+    Returns:
+        RGB tuple of the representative color
+    """
+    # Flatten to (N, 3)
+    pixels = cell_pixels.reshape(-1, 3)
+
+    # Edge cases
+    if len(pixels) == 0:
+        return (0, 0, 0)
+    if len(pixels) == 1:
+        return tuple(pixels[0])
+    if len(pixels) <= 3:
+        return tuple(np.median(pixels, axis=0).astype(np.uint8))
+
+    bin_size = 52
+
+    # Grid 1: standard binning (boundaries at 0, 52, 104...)
+    bins1 = pixels // bin_size
+    indices1 = bins1[:, 0] * 25 + bins1[:, 1] * 5 + bins1[:, 2]
+    counts1 = np.bincount(indices1, minlength=125)
+    dominant1 = np.argmax(counts1)
+    max_count1 = counts1[dominant1]
+
+    # Grid 2: offset binning (boundaries at 26, 78, 130...)
+    # Add offset before dividing, clamp to avoid overflow
+    offset = bin_size // 2
+    bins2 = np.minimum(pixels + offset, 255) // bin_size
+    indices2 = bins2[:, 0] * 25 + bins2[:, 1] * 5 + bins2[:, 2]
+    counts2 = np.bincount(indices2, minlength=125)
+    dominant2 = np.argmax(counts2)
+    max_count2 = counts2[dominant2]
+
+    # Use the grid with the larger dominant cluster
+    if max_count1 >= max_count2:
+        mask = indices1 == dominant1
+    else:
+        mask = indices2 == dominant2
+
+    dominant_pixels = pixels[mask]
+
+    # Return median of dominant bin (robust to outliers within bin)
+    return tuple(np.median(dominant_pixels, axis=0).astype(np.uint8))
+
+
 def palette_img(
     image: Image.Image,
     num_colors: int = 16,

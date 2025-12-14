@@ -53,7 +53,7 @@ uvx --from "proper-pixel-art" ppa <input_path> -o <output_path> -c <num_colors> 
 | -------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | INPUT (positional)        | Source file in pixel-art-style                                                                      |
 | `-o`, `--output` `<path>`        | Output directory or file path for result. (default: '.')                                                  |
-| `-c`, `--colors` `<int>`         | Number of colors for output. May need to try a few different values. (default 16)                         |
+| `-c`, `--colors` `<int>`         | Number of colors for output (1-256), or 0 to skip quantization and preserve all colors. May need to try a few different values. (default 16)                         |
 | `-s`, `--scale-result` `<int>`     | Width/height of each "pixel" in the output. (default: 1)                                                          |
 | `-t`, `--transparent` `<bool>`   | Output with transparent background. (default: off)                                                        |
 | `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
@@ -86,9 +86,9 @@ result.save('path/to/output.png')
 
 - `num_colors` : `int`
 
-  - The number of colors in result.
+  - The number of colors in result (1-256), or 0 to skip quantization and preserve all colors.
   - May need to try a few values if the colors don't look right.
-  - 8, 16, 32, or 64 typically works.
+  - 8, 16, 32, or 64 typically works for quantized output.
 
 - `initial_upscale` : `int`
 
