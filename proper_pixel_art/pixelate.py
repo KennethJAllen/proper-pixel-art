@@ -23,28 +23,42 @@ def downsample(
         image: The image to downsample
         mesh_lines: Tuple of (x_lines, y_lines) defining the pixel grid
         transparent_background: If True, make background transparent
-        skip_quantization: If True, use outlier removal + averaging
-                          (for images with noise/grain/background bleed when preserving all colors)
+        skip_quantization: If True, preserve alpha channel and use RGBA processing
     """
     lines_x, lines_y = mesh_lines
-    rgb = image.convert("RGB")
-    rgb_array = np.array(rgb)
     h_new, w_new = len(lines_y) - 1, len(lines_x) - 1
-    out = np.zeros((h_new, w_new, 3), dtype=np.uint8)
 
-    # Select color function based on quantization mode
-    get_color = colors.get_cell_color_skip_quantization if skip_quantization else colors.get_cell_color
+    if skip_quantization:
+        # RGBA path: preserve alpha, filter transparent pixels when computing cell color
+        rgba = image.convert("RGBA")
+        rgba_array = np.array(rgba)
+        out = np.zeros((h_new, w_new, 4), dtype=np.uint8)
 
-    for j in range(h_new):
-        for i in range(w_new):
-            x0, x1 = lines_x[i], lines_x[i + 1]
-            y0, y1 = lines_y[j], lines_y[j + 1]
-            cell = rgb_array[y0:y1, x0:x1]
-            out[j, i] = get_color(cell)
+        for j in range(h_new):
+            for i in range(w_new):
+                x0, x1 = lines_x[i], lines_x[i + 1]
+                y0, y1 = lines_y[j], lines_y[j + 1]
+                cell = rgba_array[y0:y1, x0:x1]
+                out[j, i] = colors.get_cell_color_skip_quantization(cell)
 
-    result = Image.fromarray(out, mode="RGB")
-    if transparent_background:
-        result = colors.make_background_transparent(result)
+        result = Image.fromarray(out, mode="RGBA")
+    else:
+        # RGB path: quantized image
+        rgb = image.convert("RGB")
+        rgb_array = np.array(rgb)
+        out = np.zeros((h_new, w_new, 3), dtype=np.uint8)
+
+        for j in range(h_new):
+            for i in range(w_new):
+                x0, x1 = lines_x[i], lines_x[i + 1]
+                y0, y1 = lines_y[j], lines_y[j + 1]
+                cell = rgb_array[y0:y1, x0:x1]
+                out[j, i] = colors.get_cell_color(cell)
+
+        result = Image.fromarray(out, mode="RGB")
+        if transparent_background:
+            result = colors.make_background_transparent(result)
+
     return result
 
 
@@ -91,10 +105,11 @@ def pixelate(
         pixel_width=pixel_width,
     )
 
-    # Process colors: either quantize or preserve original
+    # Process colors: either quantize or preserve original (with alpha)
     skip_quantization = num_colors == 0
     if skip_quantization:
-        processed_img = colors.clamp_alpha(image_rgba, mode="RGB")
+        # Preserve alpha: pass RGBA directly, let downsample filter by alpha
+        processed_img = image_rgba
     else:
         processed_img = colors.palette_img(
             image_rgba, num_colors=num_colors, output_dir=intermediate_dir

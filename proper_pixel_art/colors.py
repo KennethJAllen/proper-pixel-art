@@ -8,6 +8,7 @@ from PIL import Image, ImageColor
 from PIL.Image import Quantize
 
 RGB = tuple[int, int, int]
+RGBA = tuple[int, int, int, int]
 
 
 def _rgb_dist(a: RGB, b: RGB) -> int:
@@ -100,12 +101,9 @@ def get_cell_color(cell_pixels: np.ndarray) -> RGB:
     return cell_color
 
 
-def get_cell_color_skip_quantization(cell_pixels: np.ndarray) -> RGB:
+def _dominant_rgb_by_binning(rgb_pixels: np.ndarray) -> RGB:
     """
-    Select representative color by finding the densest color region.
-
-    Used when quantization is skipped (num_colors=0) to preserve original colors
-    while handling noise/grain and filtering out background bleed-in.
+    Find the dominant color using offset binning algorithm.
 
     Algorithm (offset binning):
     1. Quantize RGB space into bins using two offset grids
@@ -118,27 +116,27 @@ def get_cell_color_skip_quantization(cell_pixels: np.ndarray) -> RGB:
     This avoids bin boundary artifacts: colors straddling one grid's boundary
     will be grouped together in the other grid.
 
+    For small pixel counts (<=3), the binning algorithm is skipped and
+    either the single pixel value or median is returned directly.
+
     Args:
-        cell_pixels: shape (height, width, 3), dtype=uint8
+        rgb_pixels: shape (N, 3), dtype=uint8 - flat array of RGB values
 
     Returns:
         RGB tuple of the representative color
     """
-    # Flatten to (N, 3)
-    pixels = cell_pixels.reshape(-1, 3)
-
-    # Edge cases
-    if len(pixels) == 0:
-        return (0, 0, 0)
-    if len(pixels) == 1:
-        return tuple(pixels[0])
-    if len(pixels) <= 3:
-        return tuple(np.median(pixels, axis=0).astype(np.uint8))
+    # Edge cases for small pixel counts - binning doesn't make sense
+    if len(rgb_pixels) == 1:
+        r, g, b = rgb_pixels[0]
+        return (int(r), int(g), int(b))
+    if len(rgb_pixels) <= 3:
+        median = np.median(rgb_pixels, axis=0).astype(np.uint8)
+        return (int(median[0]), int(median[1]), int(median[2]))
 
     bin_size = 52
 
     # Grid 1: standard binning (boundaries at 0, 52, 104...)
-    bins1 = pixels // bin_size
+    bins1 = rgb_pixels // bin_size
     indices1 = bins1[:, 0] * 25 + bins1[:, 1] * 5 + bins1[:, 2]
     counts1 = np.bincount(indices1, minlength=125)
     dominant1 = np.argmax(counts1)
@@ -147,7 +145,7 @@ def get_cell_color_skip_quantization(cell_pixels: np.ndarray) -> RGB:
     # Grid 2: offset binning (boundaries at 26, 78, 130...)
     # Add offset before dividing, clamp to avoid overflow
     offset = bin_size // 2
-    bins2 = np.minimum(pixels + offset, 255) // bin_size
+    bins2 = np.minimum(rgb_pixels + offset, 255) // bin_size
     indices2 = bins2[:, 0] * 25 + bins2[:, 1] * 5 + bins2[:, 2]
     counts2 = np.bincount(indices2, minlength=125)
     dominant2 = np.argmax(counts2)
@@ -159,10 +157,55 @@ def get_cell_color_skip_quantization(cell_pixels: np.ndarray) -> RGB:
     else:
         mask = indices2 == dominant2
 
-    dominant_pixels = pixels[mask]
+    dominant_pixels = rgb_pixels[mask]
 
     # Return median of dominant bin (robust to outliers within bin)
     return tuple(np.median(dominant_pixels, axis=0).astype(np.uint8))
+
+
+def get_cell_color_skip_quantization(
+    cell_pixels: np.ndarray, alpha_threshold: int = 128
+) -> RGBA:
+    """
+    Select representative RGBA color for a cell when quantization is skipped.
+
+    Used when quantization is skipped (num_colors=0) to preserve original colors
+    while handling noise/grain and filtering out background bleed-in.
+
+    Decision logic:
+    - If >=50% of pixels are transparent (alpha < threshold), return fully transparent (0,0,0,0)
+    - Otherwise, return fully opaque color computed from only the opaque pixels
+
+    The color is determined by finding the densest color region using offset binning,
+    which avoids bin boundary artifacts: colors straddling one grid's boundary
+    will be grouped together in the other grid.
+
+    Args:
+        cell_pixels: shape (height, width, 4), dtype=uint8 (RGBA)
+        alpha_threshold: minimum alpha to consider pixel opaque (default 128)
+
+    Returns:
+        RGBA tuple - either (0,0,0,0) for transparent or (R,G,B,255) for opaque
+    """
+    pixels = cell_pixels.reshape(-1, 4)
+    total_pixels = len(pixels)
+
+    # Edge case: empty cell
+    if total_pixels == 0:
+        return (0, 0, 0, 0)
+
+    # Filter to opaque pixels only
+    opaque_mask = pixels[:, 3] >= alpha_threshold
+    opaque_pixels = pixels[opaque_mask]
+
+    # If majority is transparent (>= 50%), return fully transparent
+    if len(opaque_pixels) <= total_pixels / 2:
+        return (0, 0, 0, 0)
+
+    # Get RGB of opaque pixels and find dominant color
+    rgb_pixels = opaque_pixels[:, :3]
+    r, g, b = _dominant_rgb_by_binning(rgb_pixels)
+    return (int(r), int(g), int(b), 255)
 
 
 def palette_img(
