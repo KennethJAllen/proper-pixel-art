@@ -290,13 +290,3 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
     - Result upscaled by a factor of $20 \times$ using nearest neighbor.
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/result.png" width="80%" alt="blob pixelated"/>
-
-## Testing
-
-To test algorithm changes and verify output quality:
-
-```bash
-uv run pytest -s
-```
-
-The tests pixelate all assets in `assets/{name}/{name}.png` and save outputs to `tests/outputs/` for manual visual inspection.
