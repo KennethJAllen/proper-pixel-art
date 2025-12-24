@@ -35,8 +35,8 @@ def parse_args() -> argparse.Namespace:
         "--colors",
         dest="num_colors",
         type=int,
-        default=16,
-        help="Number of colors to quantize the image to (1-256). Use 0 to skip quantization and preserve all colors.",
+        default=None,
+        help="Number of colors to quantize the image to (1-256). Omit to skip quantization and preserve all colors.",
     )
     parser.add_argument(
         "-s",

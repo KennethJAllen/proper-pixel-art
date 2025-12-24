@@ -2,9 +2,13 @@
 
 ## Summary
 
-- Converts noisy, high resolution pixel-art-style images such as those produced by generative models to true pixel resolution assets.
+Converts noisy, high resolution pixel-art style images such as those produced by generative models or sourced from low-quality web uploads to clean, true-resolution pixel-art assets.
 
-- Clean screenshots or low-quality web uploads of sprites.
+### Challenges
+
+Generative pixel-art style images are noisy and high resolution, often with a non-uniform grid and random artifacts. Standard downsampling techniques do not work. The current approach is to either use naive downscaling techniques or manually re-create the asset pixel by pixel.
+
+This tool addressed both of these issues by automating the process of recovering true-resolution pixel-art assets.
 
 ## Installation
 
@@ -53,7 +57,7 @@ uvx --from "proper-pixel-art" ppa <input_path> -o <output_path> -c <num_colors> 
 | -------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | INPUT (positional)        | Source file in pixel-art-style                                                                      |
 | `-o`, `--output` `<path>`        | Output directory or file path for result. (default: '.')                                                  |
-| `-c`, `--colors` `<int>`         | Number of colors for output (1-256), or 0 to skip quantization and preserve all colors. May need to try a few different values. (default 16)                         |
+| `-c`, `--colors` `<int>`         | Number of colors for output (1-256). Omit to skip quantization and preserve all colors. May need to try a few different values. (default None)                         |
 | `-s`, `--scale-result` `<int>`     | Width/height of each "pixel" in the output. (default: 1)                                                          |
 | `-t`, `--transparent` `<bool>`   | Output with transparent background. (default: off)                                                        |
 | `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
@@ -64,7 +68,7 @@ uvx --from "proper-pixel-art" ppa <input_path> -o <output_path> -c <num_colors> 
 ```bash
 uv run ppa assets/blob/blob.png -c 16 -s 20 -t
 # or directly using uvx
-uvx --from "proper-pixel-art" ppa path/to/input.png -o . -c 16 -s 5 -t
+uvx --from "proper-pixel-art" ppa path/to/input.png -o . -c 16 -s 20 -t
 ```
 
 ### Python
@@ -84,19 +88,19 @@ result.save('path/to/output.png')
 
   - A PIL image to pixelate.
 
-- `num_colors` : `int`
+- `num_colors` : `int | None`
 
-  - The number of colors in result (1-256), or 0 to skip quantization and preserve all colors.
+  - The number of colors in result (1-256). Omit to skip quantization and preserve all colors.
   - May need to try a few values if the colors don't look right.
   - 8, 16, 32, or 64 typically works for quantized output.
 
 - `initial_upscale` : `int`
 
-  - Upscale result after algorithm is complete if not None.
+  - Upscale initial image. This may help detect lines.
 
 - `scale_result` : `int`
 
-  - Upscale initial image. This may help detect lines.
+  - Upscale result after algorithm is complete if not None.
 
 - `transparent_background` : `bool`
   - If True, flood fills each corner of the result with transparent alpha.
@@ -243,15 +247,6 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
     </td>
   </tr>
 </table>
-
-## Challenges
-
-The result of pixel-art style images from LLMs are noisy, high resolution images with a non-uniform grid and random artifacts. Due to these issues, standard downsampling techniques do not work. How can we recover the pixel art with "true" resolution and colors?
-
-The current approach to turning pixel art into useable assets for games are either
-
-1) Use naive downsampling which does not give a result that is faithful to the original image.
-2) Manually re-create the image in the appropriate resolution pixel by pixel.
 
 ## Algorithm
 

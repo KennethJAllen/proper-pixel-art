@@ -64,7 +64,7 @@ def downsample(
 
 def pixelate(
     image: Image.Image,
-    num_colors: int = 16,
+    num_colors: int | None = None,
     initial_upscale_factor: int = 2,
     scale_result: int | None = None,
     transparent_background: bool = False,
@@ -106,7 +106,7 @@ def pixelate(
     )
 
     # Process colors: either quantize or preserve original (with alpha)
-    skip_quantization = num_colors == 0
+    skip_quantization = num_colors is None
     if skip_quantization:
         # Preserve alpha: pass RGBA directly, let downsample filter by alpha
         processed_img = image_rgba

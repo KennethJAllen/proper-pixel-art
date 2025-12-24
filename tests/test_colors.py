@@ -35,7 +35,7 @@ class TestGetCellColor:
 
 class TestGetCellColorSkipQuantization:
     """Tests for histogram-based color selection (when quantization is skipped).
-    
+
     The function now takes RGBA input and returns RGBA output.
     For fully opaque cells (alpha=255), the RGB result matches the original algorithm.
     """
@@ -157,7 +157,7 @@ class TestGetCellColorSkipQuantization:
         """
         Gradient from dark (black) to bright green should return
         a noticeably green color, not black-ish.
-        
+
         This tests the case where dark pixels dominate by count
         but green is the distinctive color.
         """
@@ -168,7 +168,7 @@ class TestGetCellColorSkipQuantization:
                 # R: stays low
                 # G: increases from ~20 to ~150
                 # B: stays low
-                intensity = (i * 10 + j)  # 0-99, scaled
+                intensity = i * 10 + j  # 0-99, scaled
                 rgb[i, j] = [
                     20 + intensity // 10,  # R: 20-29
                     20 + intensity,  # G: 20-119
