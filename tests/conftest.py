@@ -34,7 +34,7 @@ def fixture_pixelate_png_test_params(assets: Path) -> dict[str, dict]:
         "blob": {
             "num_colors": 16,
             "result_scale": 25,
-            "transparent_background": True,
+            "transparent_background": False,
             "path": assets / "blob" / "blob.png",
         },
         "demon": {

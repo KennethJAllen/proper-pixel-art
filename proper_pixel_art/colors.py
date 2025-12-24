@@ -90,6 +90,30 @@ def clamp_alpha(
     return Image.composite(base, background, mask)
 
 
+def extract_and_scale_alpha(image: Image.Image, scale_factor: int = 1) -> np.ndarray:
+    """
+    Extract alpha channel from an RGBA image and scale it.
+
+    Args:
+        image: RGBA PIL Image
+        scale_factor: Integer scale factor for resizing (default 1 = no scaling)
+
+    Returns:
+        Numpy array of alpha channel values (uint8), scaled if scale_factor != 1
+    """
+    # Extract alpha channel from RGBA image
+    alpha_channel = np.array(image.convert("RGBA"))[:, :, 3]
+
+    # Scale alpha channel if needed
+    if scale_factor != 1:
+        alpha_img = Image.fromarray(alpha_channel, mode="L")
+        new_size = (alpha_img.width * scale_factor, alpha_img.height * scale_factor)
+        scaled_alpha_img = alpha_img.resize(new_size, Image.Resampling.NEAREST)
+        return np.array(scaled_alpha_img)
+    else:
+        return alpha_channel
+
+
 def get_cell_color(cell_pixels: np.ndarray) -> RGB:
     """
     cell_pixels: shape (height_cell, width_cell, 3), dtype=uint8
@@ -258,8 +282,11 @@ def most_common_boundary_color(image: Image.Image) -> RGB:
 def make_background_transparent(image: Image.Image) -> Image.Image:
     """
     Make the background fully transparent by:
-      1) take the most common color on the boundary
-      2) setting alpha=0 for all pixels equal to that color
+      1) Identifying the most common color on the image boundary
+      2) Setting alpha=0 for all pixels matching that color
+
+    Note: This sets transparency for ALL pixels matching the boundary color,
+    not just boundary pixels (no flood fill).
     """
     background_color = most_common_boundary_color(image)
     image_rgba = image.convert("RGBA")

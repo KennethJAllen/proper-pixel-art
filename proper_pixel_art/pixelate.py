@@ -1,5 +1,6 @@
 """Main functions for pixelating an image with the pixelate function"""
 
+from itertools import product
 from pathlib import Path
 
 import numpy as np
@@ -12,54 +13,66 @@ from proper_pixel_art.utils import Mesh
 def downsample(
     image: Image.Image,
     mesh_lines: Mesh,
-    transparent_background: bool = False,
     skip_quantization: bool = False,
+    original_alpha: np.ndarray | None = None,
 ) -> Image.Image:
     """
     Downsample the image by looping over each cell in mesh and
     selecting a representative color for each cell.
 
+    Transparency handling:
+    - If >=50% of pixels in a cell are transparent (alpha < 128),
+      the entire cell becomes transparent (0,0,0,0)
+    - For skip_quantization=True, uses alpha channel from image directly
+    - For skip_quantization=False with original_alpha provided,
+      uses alpha channel from original_alpha array
+
     Args:
-        image: The image to downsample
+        image: The image to downsample (RGB if quantized, RGBA if not)
         mesh_lines: Tuple of (x_lines, y_lines) defining the pixel grid
-        transparent_background: If True, make background transparent
-        skip_quantization: If True, preserve alpha channel and use RGBA processing
+        skip_quantization: If True, use histogram-based color selection for RGBA
+        original_alpha: Optional numpy array of alpha channel values from original
+                       image. Used to preserve transparency through quantization.
+                       Only used when skip_quantization=False.
+
+    Returns:
+        RGBA image with downsampled pixels
     """
     lines_x, lines_y = mesh_lines
-    h_new, w_new = len(lines_y) - 1, len(lines_x) - 1
+    height_result, width_result = len(lines_y) - 1, len(lines_x) - 1
 
+    # Single conversion at start
     if skip_quantization:
-        # RGBA path: preserve alpha, filter transparent pixels when computing cell color
-        rgba = image.convert("RGBA")
-        rgba_array = np.array(rgba)
-        out = np.zeros((h_new, w_new, 4), dtype=np.uint8)
-
-        for j in range(h_new):
-            for i in range(w_new):
-                x0, x1 = lines_x[i], lines_x[i + 1]
-                y0, y1 = lines_y[j], lines_y[j + 1]
-                cell = rgba_array[y0:y1, x0:x1]
-                out[j, i] = colors.get_cell_color_skip_quantization(cell)
-
-        result = Image.fromarray(out, mode="RGBA")
+        img_array = np.array(image.convert("RGBA"))
     else:
-        # RGB path: quantized image
-        rgb = image.convert("RGB")
-        rgb_array = np.array(rgb)
-        out = np.zeros((h_new, w_new, 3), dtype=np.uint8)
+        img_array = np.array(image.convert("RGB"))
 
-        for j in range(h_new):
-            for i in range(w_new):
-                x0, x1 = lines_x[i], lines_x[i + 1]
-                y0, y1 = lines_y[j], lines_y[j + 1]
-                cell = rgb_array[y0:y1, x0:x1]
-                out[j, i] = colors.get_cell_color(cell)
+    # Output is RGBA to support transparency
+    out = np.zeros((height_result, width_result, 4), dtype=np.uint8)
 
-        result = Image.fromarray(out, mode="RGB")
-        if transparent_background:
-            result = colors.make_background_transparent(result)
+    for j, i in product(range(height_result), range(width_result)):
+        x0, x1 = lines_x[i], lines_x[i + 1]
+        y0, y1 = lines_y[j], lines_y[j + 1]
+        cell = img_array[y0:y1, x0:x1]
 
-    return result
+        if skip_quantization:
+            # Skip quantization and use original colros
+            out[j, i] = colors.get_cell_color_skip_quantization(cell)
+        else:
+            # check alpha separately and apply majority rule
+            if original_alpha is not None:
+                cell_alpha = original_alpha[y0:y1, x0:x1]
+                total_pixels = cell_alpha.size
+                opaque_pixels = np.sum(cell_alpha >= 128)
+
+                if opaque_pixels <= total_pixels / 2:
+                    out[j, i] = (0, 0, 0, 0)
+                    continue
+
+            cell_color = colors.get_cell_color(cell)
+            out[j, i] = (*cell_color, 255)  # Add full opacity
+
+    return Image.fromarray(out, mode="RGBA")
 
 
 def pixelate(
@@ -87,7 +100,8 @@ def pixelate(
     - initial_upscale_factor:
         Upsample original image by this factor. It may help detect lines.
     - transparent_background:
-        If True, flood fills each corner of the result with transparent alpha.
+        If True, makes pixels matching the most common boundary color transparent.
+        Applied after preserving original image transparency.
     - intermediate_dir:
         directory to save images visualizing intermediate steps.
     - pixel_width:
@@ -118,15 +132,24 @@ def pixelate(
     # Scale the processed image to match the dimensions for the calculated mesh
     scaled_img = utils.scale_img(processed_img, upscale_factor)
 
+    # Extract and scale alpha channel for quantized path
+    scaled_alpha_array = (
+        None
+        if skip_quantization
+        else colors.extract_and_scale_alpha(image_rgba, upscale_factor)
+    )
+
     # Downsample the image to 1 pixel per cell in the mesh
     result = downsample(
         scaled_img,
         mesh_lines,
-        transparent_background=transparent_background,
         skip_quantization=skip_quantization,
+        original_alpha=scaled_alpha_array,
     )
 
-    # upscale the result if scale_result is set to an integer
+    if transparent_background:
+        result = colors.make_background_transparent(result)
+
     if scale_result is not None:
         result = utils.scale_img(result, int(scale_result))
 
