@@ -78,7 +78,7 @@ def pixelate(
         A PIL image to pixelate.
     - num_colors:
         The number of colors to use when quantizing the image.
-        Use 0 to skip quantization and preserve all colors.
+        Use None to skip quantization and preserve all colors.
         This is an important parameter to tune,
         if it is too high, pixels that should be the same color will be different colors
         if it is too low, pixels that should be different colors will be the same color

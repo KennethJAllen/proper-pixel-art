@@ -20,7 +20,7 @@ def process(
         return None
     return pixelate(
         image,
-        num_colors=num_colors,
+        num_colors=num_colors if num_colors > 0 else None,
         transparent_background=transparent,
         scale_result=scale if scale > 1 else None,
         initial_upscale_factor=initial_upscale,

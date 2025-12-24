@@ -169,7 +169,7 @@ def get_cell_color_skip_quantization(
     """
     Select representative RGBA color for a cell when quantization is skipped.
 
-    Used when quantization is skipped (num_colors=0) to preserve original colors
+    Used when quantization is skipped to preserve original colors
     while handling noise/grain and filtering out background bleed-in.
 
     Decision logic:
