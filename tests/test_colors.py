@@ -2,7 +2,11 @@
 
 import numpy as np
 
-from proper_pixel_art.colors import get_cell_color, get_cell_color_skip_quantization
+from proper_pixel_art.colors import (
+    get_opaque_cell_color,
+    get_cell_color_skip_quantization,
+    get_cell_color_with_alpha,
+)
 
 
 def _make_rgba(rgb_cell: np.ndarray, alpha: int = 255) -> np.ndarray:
@@ -23,14 +27,79 @@ class TestGetCellColor:
         cell[:6, :] = [255, 0, 0]  # 60 red pixels
         cell[6:, :] = [0, 0, 255]  # 40 blue pixels
 
-        result = get_cell_color(cell)
-        assert result == (255, 0, 0)
+        result = get_opaque_cell_color(cell)
+        assert result == (255, 0, 0, 255)
 
     def test_single_color(self):
         """Single color cell returns that color."""
         cell = np.full((5, 5, 3), [42, 84, 126], dtype=np.uint8)
-        result = get_cell_color(cell)
-        assert result == (42, 84, 126)
+        result = get_opaque_cell_color(cell)
+        assert result == (42, 84, 126, 255)
+
+
+class TestGetCellColorWithAlpha:
+    """Tests for get_cell_color_with_alpha (quantized RGB + alpha channel)."""
+
+    def test_majority_transparent_returns_transparent(self):
+        """Cell with >=50% transparent pixels returns fully transparent."""
+        # RGB cell from quantized image
+        cell_pixels = np.full((10, 10, 3), [200, 100, 50], dtype=np.uint8)
+
+        # Alpha channel from original image - 70% transparent
+        cell_alpha = np.zeros((10, 10), dtype=np.uint8)
+        cell_alpha[:3, :] = 255  # 30% opaque (30 pixels)
+        # Remaining 70% stays at 0 (transparent)
+
+        result = get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        assert result == (0, 0, 0, 0)
+
+    def test_majority_opaque_returns_most_common_color(self):
+        """Cell with >50% opaque pixels returns the most common RGB color."""
+        # Quantized RGB cell with multiple colors
+        cell_pixels = np.zeros((10, 10, 3), dtype=np.uint8)
+        cell_pixels[:7, :] = [255, 0, 0]  # 70% red
+        cell_pixels[7:, :] = [0, 0, 255]  # 30% blue
+
+        # Alpha channel from original - 70% opaque
+        cell_alpha = np.zeros((10, 10), dtype=np.uint8)
+        cell_alpha[:7, :] = 255  # 70% opaque
+        # Remaining 30% transparent
+
+        result = get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        assert result == (255, 0, 0, 255)  # Most common color (red) with full opacity
+
+    def test_exactly_50_percent_transparent_returns_transparent(self):
+        """Cell with exactly 50% transparent (tie) returns transparent."""
+        cell_pixels = np.full((10, 10, 3), [100, 100, 100], dtype=np.uint8)
+
+        # Exactly 50% opaque, 50% transparent
+        cell_alpha = np.zeros((10, 10), dtype=np.uint8)
+        cell_alpha[:5, :] = 255  # 50% opaque
+        # Remaining 50% transparent
+
+        result = get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        assert result == (0, 0, 0, 0)
+
+    def test_single_color_all_opaque(self):
+        """Single color cell with all opaque pixels returns that color."""
+        cell_pixels = np.full((5, 5, 3), [42, 84, 126], dtype=np.uint8)
+        cell_alpha = np.full((5, 5), 255, dtype=np.uint8)  # All opaque
+
+        result = get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        assert result == (42, 84, 126, 255)
+
+    def test_most_common_color_selected_from_quantized(self):
+        """Returns the most frequent color from quantized RGB cell."""
+        # Quantized cell with clear most-common color
+        cell_pixels = np.zeros((10, 10, 3), dtype=np.uint8)
+        cell_pixels[:8, :] = [200, 50, 25]  # 80% this color
+        cell_pixels[8:, :] = [100, 150, 75]  # 20% this color
+
+        # All pixels opaque
+        cell_alpha = np.full((10, 10), 255, dtype=np.uint8)
+
+        result = get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        assert result == (200, 50, 25, 255)
 
 
 class TestGetCellColorSkipQuantization:
