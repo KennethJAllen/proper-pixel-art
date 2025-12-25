@@ -21,8 +21,7 @@ def downsample(
     selecting a representative color for each cell.
 
     Transparency handling:
-    - If >=50% of pixels in a cell are transparent (alpha < 128),
-      the entire cell becomes transparent (0,0,0,0)
+    - If >=50% of pixels in a cell are transparent, the entire cell becomes transparent (0,0,0,0)
     - For skip_quantization=True, uses alpha channel from image directly
     - For skip_quantization=False with original_alpha provided,
       uses alpha channel from original_alpha array
@@ -59,18 +58,12 @@ def downsample(
             # Skip quantization and use original colros
             out[j, i] = colors.get_cell_color_skip_quantization(cell)
         else:
-            # check alpha separately and apply majority rule
+            # Get color from quantized cell, considering alpha from original
             if original_alpha is not None:
                 cell_alpha = original_alpha[y0:y1, x0:x1]
-                total_pixels = cell_alpha.size
-                opaque_pixels = np.sum(cell_alpha >= 128)
-
-                if opaque_pixels <= total_pixels / 2:
-                    out[j, i] = (0, 0, 0, 0)
-                    continue
-
-            cell_color = colors.get_cell_color(cell)
-            out[j, i] = (*cell_color, 255)  # Add full opacity
+                out[j, i] = colors.get_cell_color_with_alpha(cell, cell_alpha)
+            else:
+                out[j, i] = colors.get_opaque_cell_color(cell)
 
     return Image.fromarray(out, mode="RGBA")
 
