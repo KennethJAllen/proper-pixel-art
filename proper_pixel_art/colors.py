@@ -133,9 +133,7 @@ def get_opaque_cell_color(cell_pixels: np.ndarray) -> RGBA:
     return (*cell_color, 255)
 
 
-def get_cell_color_with_alpha(
-    cell_pixels: np.ndarray, cell_alpha: np.ndarray
-) -> RGBA:
+def get_cell_color_with_alpha(cell_pixels: np.ndarray, cell_alpha: np.ndarray) -> RGBA:
     """
     Select representative color for a quantized cell, considering transparency.
 
