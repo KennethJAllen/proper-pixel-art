@@ -1,6 +1,6 @@
 [project]
 name = "proper-pixel-art"
-version = "1.3.5"
+version = "1.3.6"
 description = "Converts pixel-art-style images such as those from generative models or low-quality sprite web uploads to true resolution usable assets."
 authors = [{name = "Kenneth Allen"}]
 readme = "README.md"
