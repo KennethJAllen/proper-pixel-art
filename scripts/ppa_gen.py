@@ -41,13 +41,13 @@ Examples:
 
   # With all OpenAI options
   python scripts/generate_pixel_art.py \\
-    --prompt "A fantasy castle" \\
+    --prompt "A 16 bit pixel art fantasy castle" \\
     --size 1792x1024 \\
     --n 2
 
   # With pixelation options
   python scripts/generate_pixel_art.py \\
-    --prompt "A pixel art robot" \\
+    --prompt "A 16 bit pixel art robot" \\
     --colors 16 \\
     --scale-result 20 \\
     --transparent
@@ -65,7 +65,7 @@ Examples:
     openai_group.add_argument(
         "--size",
         type=str,
-        choices=["1024x1024", "1024x1792", "1792x1024"],
+        choices=["1024x1024", "1024x1536", "1536x1024", "auto"],
         default="1024x1024",
         help="Generated image size (default: 1024x1024).",
     )
@@ -86,16 +86,11 @@ Examples:
         "--output-dir",
         dest="output_dir",
         type=Path,
-        default=Path("scripts/output"),
-        help="Output directory for generated images (default: scripts/output).",
+        default=Path("."),
+        help="Output directory for generated images (default: current directory).",
     )
 
     return parser.parse_args()
-
-
-def generate_timestamp() -> str:
-    """Generate timestamp string for file naming."""
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 def generate_images(client: OpenAI, args: argparse.Namespace) -> list[Image.Image]:
@@ -120,7 +115,10 @@ def generate_images(client: OpenAI, args: argparse.Namespace) -> list[Image.Imag
 
 
 def process_image(
-    original_image: Image.Image, args: argparse.Namespace, timestamp: str, index: int = 0
+    original_image: Image.Image,
+    args: argparse.Namespace,
+    timestamp: str,
+    index: int = 0,
 ) -> tuple[Path, Path]:
     """Pixelate and save a single image."""
     print(f"Processing image {index + 1}...")
@@ -171,7 +169,7 @@ def main() -> None:
         return
 
     # Generate timestamp for this batch
-    timestamp = generate_timestamp()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     try:
         # Generate images via OpenAI API
