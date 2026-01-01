@@ -4,3 +4,4 @@ tests/outputs/
 notebooks/
 .python-version
 *__pycache__*
+.env

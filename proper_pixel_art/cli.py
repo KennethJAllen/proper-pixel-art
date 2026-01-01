@@ -8,6 +8,66 @@ from PIL import Image
 from proper_pixel_art import pixelate
 
 
+def add_pixelation_args(
+    parser: argparse.ArgumentParser, group_name: str = "Pixelation options"
+) -> argparse.ArgumentParser:
+    """Add common pixelation arguments to an argument parser.
+
+    Args:
+        parser: The argument parser to add arguments to
+        group_name: Name of the argument group (default: "Pixelation options")
+
+    Returns:
+        The parser with pixelation arguments added
+    """
+    pixel_group = parser.add_argument_group(group_name)
+    pixel_group.add_argument(
+        "-c",
+        "--colors",
+        dest="num_colors",
+        type=int,
+        default=None,
+        help="Number of colors to quantize the image to (1-256). Omit to skip quantization and preserve all colors.",
+    )
+    pixel_group.add_argument(
+        "-s",
+        "--scale-result",
+        dest="scale_result",
+        type=int,
+        default=1,
+        help="Width of the 'pixels' in the output image (default: 1).",
+    )
+    pixel_group.add_argument(
+        "-t",
+        "--transparent",
+        dest="transparent",
+        action="store_true",
+        default=False,
+        help="Produce a transparent background in the output if set.",
+    )
+    pixel_group.add_argument(
+        "-w",
+        "--pixel-width",
+        dest="pixel_width",
+        type=int,
+        default=None,
+        help="Width of the pixels in the input image. If not set, it will be determined automatically.",
+    )
+    pixel_group.add_argument(
+        "-u",
+        "--initial-upscale",
+        dest="initial_upscale",
+        type=int,
+        default=2,
+        help=(
+            "Initial image upscale factor in mesh detection algorithm. "
+            "If the detected spacing is too large, "
+            "it may be useful to increase this value."
+        ),
+    )
+    return parser
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a true-resolution pixel-art image from a source image."
@@ -30,50 +90,10 @@ def parse_args() -> argparse.Namespace:
         default=".",
         help="Path where the pixelated image will be saved. Can be either a directory or a file path.",
     )
-    parser.add_argument(
-        "-c",
-        "--colors",
-        dest="num_colors",
-        type=int,
-        default=None,
-        help="Number of colors to quantize the image to (1-256). Omit to skip quantization and preserve all colors.",
-    )
-    parser.add_argument(
-        "-s",
-        "--scale-result",
-        dest="scale_result",
-        type=int,
-        default=1,
-        help="Width of the 'pixels' in the output image (default: 1).",
-    )
-    parser.add_argument(
-        "-t",
-        "--transparent",
-        dest="transparent",
-        action="store_true",
-        default=False,
-        help="Produce a transparent background in the output if set.",
-    )
-    parser.add_argument(
-        "-w",
-        "--pixel-width",
-        dest="pixel_width",
-        type=int,
-        default=None,
-        help="Width of the pixels in the input image. If not set, it will be determined automatically.",
-    )
-    parser.add_argument(
-        "-u",
-        "--initial-upscale",
-        dest="initial_upscale",
-        type=int,
-        default=2,
-        help=(
-            "Initial image upscale factor in mesh detection algorithm. "
-            "If the detected spacing is too large, "
-            "it may be useful to increase this value."
-        ),
-    )
+
+    # Add common pixelation arguments
+    add_pixelation_args(parser)
+
     args = parser.parse_args()
 
     # Either take the input as the first argument or use the -i flag

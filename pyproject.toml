@@ -34,10 +34,15 @@ Issues = "https://github.com/KennethJAllen/proper-pixel-art/issues"
 
 [project.optional-dependencies]
 web = ["gradio>=5.0.0"]
+scripts = [
+    "openai>=1.54.0",
+    "python-dotenv>=1.0.0",
+]
 
 [project.scripts]
 ppa = "proper_pixel_art.cli:main"
 ppa-web = "proper_pixel_art.web:main"
+ppa-gen = "scripts.prompt2pixel:main"
 
 [build-system]
 requires = ["hatchling"]
