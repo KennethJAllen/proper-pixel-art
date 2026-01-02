@@ -1,6 +1,6 @@
 [project]
 name = "proper-pixel-art"
-version = "1.4.0"
+version = "1.4.1"
 description = "Converts pixel-art-style images such as those from generative models or low-quality sprite web uploads to true resolution usable assets."
 authors = [{name = "Kenneth Allen"}]
 readme = "README.md"
@@ -42,7 +42,7 @@ scripts = [
 [project.scripts]
 ppa = "proper_pixel_art.cli:main"
 ppa-web = "proper_pixel_art.web:main"
-ppa-gen = "scripts.prompt2pixel:main"
+ppa-gen = "scripts.ppa_gen:main"
 
 [build-system]
 requires = ["hatchling"]
