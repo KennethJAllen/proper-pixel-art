@@ -41,6 +41,7 @@ scripts = [
 
 [project.scripts]
 ppa = "proper_pixel_art.cli:main"
+ppa-video = "proper_pixel_art.cli_video:main"
 ppa-web = "proper_pixel_art.web:main"
 ppa-gen = "scripts.ppa_gen:main"
 
