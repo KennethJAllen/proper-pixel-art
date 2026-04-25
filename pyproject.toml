@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=2.2.4",
-    "opencv-python>=4.11.0.86",
+    "opencv-python-headless>=4.11.0.86",
     "pillow>=11.1.0",
 ]
 
