@@ -333,7 +333,7 @@ def make_background_transparent(image: Image.Image) -> Image.Image:
         if (r, g, b) == background_color:
             out.append((r, g, b, 0))
         else:
-            out.append((r, g, b, a or 255))
+            out.append((r, g, b, a))
 
     image_rgba.putdata(out)
     return image_rgba

@@ -112,7 +112,7 @@ def get_pixel_width(
         # fallback to median of all gaps
         middle = gaps
 
-    return np.median(middle)
+    return int(np.round(np.median(middle)))
 
 
 def homogenize_lines(lines: Lines, pixel_width: int) -> Lines:
