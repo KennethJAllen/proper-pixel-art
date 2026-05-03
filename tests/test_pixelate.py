@@ -18,7 +18,7 @@ def test_pixelate_pngs(pixelate_png_test_params: dict[str, dict]) -> None:
         img = Image.open(params["path"])
 
         # Pixelate
-        result = pixelate.pixelate(
+        result = pixelate(
             img,
             num_colors=params["num_colors"],
             scale_result=params["result_scale"],

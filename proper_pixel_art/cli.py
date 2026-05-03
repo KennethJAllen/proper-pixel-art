@@ -1,6 +1,7 @@
 """Command line interface"""
 
 import argparse
+from importlib.metadata import version
 from pathlib import Path
 
 from PIL import Image
@@ -73,14 +74,13 @@ def parse_args() -> argparse.Namespace:
         description="Generate a true-resolution pixel-art image from a source image."
     )
     parser.add_argument(
-        "input_path", type=Path, nargs="?", help="Path to the source input file."
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {version('proper-pixel-art')}",
     )
     parser.add_argument(
-        "-i",
-        "--input",
-        dest="input_path_flag",
-        type=Path,
-        help="Path to the source input file.",
+        "input_path", type=Path, help="Path to the source input file."
     )
     parser.add_argument(
         "-o",
@@ -94,16 +94,7 @@ def parse_args() -> argparse.Namespace:
     # Add common pixelation arguments
     add_pixelation_args(parser)
 
-    args = parser.parse_args()
-
-    # Either take the input as the first argument or use the -i flag
-    if args.input_path is None and args.input_path_flag is None:
-        parser.error("You must provide an input path (positional or with -i).")
-    args.input_path = (
-        args.input_path if args.input_path is not None else args.input_path_flag
-    )
-
-    return args
+    return parser.parse_args()
 
 
 def resolve_output_path(
@@ -127,7 +118,7 @@ def main() -> None:
     out_path.parent.mkdir(exist_ok=True, parents=True)
 
     img = Image.open(input_path)
-    pixelated = pixelate.pixelate(
+    pixelated = pixelate(
         img,
         num_colors=args.num_colors,
         scale_result=args.scale_result,
