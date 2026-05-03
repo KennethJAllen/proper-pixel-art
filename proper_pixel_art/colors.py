@@ -32,7 +32,7 @@ def _top_opaque_colors(
     rgba = img.convert("RGBA").copy()
     rgba.thumbnail((160, 160))  # speed and de-noise tiny details
     counts = Counter()
-    for r, g, b, a in rgba.getdata():
+    for r, g, b, a in rgba.get_flattened_data():
         if a >= alpha_threshold:
             counts[(r, g, b)] += 1
     return [c for c, _ in counts.most_common(limit)]
@@ -303,8 +303,8 @@ def most_common_boundary_color(image: Image.Image) -> RGB:
     w, h = image_rgb.size
 
     # top and bottom rows
-    top = list(image_rgb.crop((0, 0, w, 1)).getdata())
-    bottom = list(image_rgb.crop((0, h - 1, w, h)).getdata())
+    top = list(image_rgb.crop((0, 0, w, 1)).get_flattened_data())
+    bottom = list(image_rgb.crop((0, h - 1, w, h)).get_flattened_data())
     # left and right columns (excluding corners)
     left = [image_rgb.getpixel((0, y)) for y in range(1, h - 1)]
     right = [image_rgb.getpixel((w - 1, y)) for y in range(1, h - 1)]
@@ -325,7 +325,7 @@ def make_background_transparent(image: Image.Image) -> Image.Image:
     """
     background_color = most_common_boundary_color(image)
     image_rgba = image.convert("RGBA")
-    px = list(image_rgba.getdata())
+    px = list(image_rgba.get_flattened_data())
 
     out = []
     for r, g, b, a in px:
