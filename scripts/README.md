@@ -4,7 +4,7 @@ Scripts for generating pixel art using AI models.
 
 ## ppa-gen
 
-Generate pixel art images using OpenAI's gpt-image-1.5 API and automatically pixelate them using the proper-pixel-art library.
+Generate pixel art images using OpenAI's gpt-image-2 API and automatically pixelate them using the proper-pixel-art library.
 
 ### Setup
 
@@ -19,7 +19,10 @@ uv sync --extra scripts
 1. [Create a new API key](https://platform.openai.com/api-keys)
 2. Create a `.env` file in the project root
 3. Add your API key to `.env`:
-4. `OPENAI_API_KEY=sk-your-api-key-here`
+
+   ```
+   OPENAI_API_KEY=sk-your-api-key-here
+   ```
 
 ### Usage
 

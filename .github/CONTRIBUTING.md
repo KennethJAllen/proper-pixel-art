@@ -39,5 +39,5 @@ uv run ruff check
 uv run pytest -s
 ```
 
-- If changing the main pixelate algorithm, manualy check the results in `tests/outputs/`
+- If changing the main pixelate algorithm, manually check the results in `tests/outputs/`
 - If necessary, change the number of colors in `tests/conftest.py`

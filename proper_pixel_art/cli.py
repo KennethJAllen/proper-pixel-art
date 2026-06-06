@@ -111,8 +111,7 @@ def parse_args() -> argparse.Namespace:
         help="Path to a YAML config file of pixelation parameters. Any flags passed explicitly override values in the file.",
     )
 
-    # Add common pixelation arguments. Each defaults to None ("not provided"),
-    # so unset flags fall back to the --config file while set flags override it.
+    # Flags default to None so unset ones fall back to --config; see pixelate().
     add_pixelation_args(parser)
 
     args = parser.parse_args()
@@ -149,8 +148,7 @@ def main() -> None:
 
     config = PixelateConfig.from_yaml(args.config) if args.config else None
 
-    # Forward the args straight through; None values fall back to the config
-    # inside pixelate's merge. Each arg's dest matches the pixelate kwarg name.
+    # Each arg's dest matches a pixelate kwarg; None values fall back to config.
     pixelate_fields = (
         "num_colors",
         "scale_result",

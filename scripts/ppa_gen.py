@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate pixel art images using OpenAI's gpt-image-1.5 API and pixelate them."""
+"""Generate pixel art images using OpenAI's gpt-image-2 API and pixelate them."""
 
 import argparse
 import base64
@@ -32,21 +32,21 @@ def load_api_key() -> str:
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Generate images using OpenAI's gpt-image-1.5 and pixelate them.",
+        description="Generate images using OpenAI's gpt-image-2 and pixelate them.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Basic usage
-  python scripts/generate_pixel_art.py --prompt "A cute pixel art cat"
+  python scripts/ppa_gen.py --prompt "A cute pixel art cat"
 
   # With all OpenAI options
-  python scripts/generate_pixel_art.py \\
+  python scripts/ppa_gen.py \\
     --prompt "A 16 bit pixel art fantasy castle" \\
-    --size 1792x1024 \\
+    --size 1536x1024 \\
     --n 2
 
   # With pixelation options
-  python scripts/generate_pixel_art.py \\
+  python scripts/ppa_gen.py \\
     --prompt "A 16 bit pixel art robot" \\
     --colors 16 \\
     --scale-result 20 \\

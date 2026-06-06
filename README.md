@@ -108,8 +108,6 @@ result = pixelate(image, num_colors=16)
 result.save('path/to/output.png')
 ```
 
-Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or use 0 to skip quantization.
-
 #### Parameters
 
 - `image` : `PIL.Image.Image`
@@ -168,7 +166,7 @@ ppa input.png --config config.yaml -c 8 # but override num_colors to 8
 
 ## Examples
 
-The algorithm is robust. It performs well for images that are already approximately alligned to a grid.
+The algorithm is robust. It performs well for images that are already approximately aligned to a grid.
 
 Here are a few examples. A mesh is computed, where each cell corresponds to one pixel.
 
@@ -315,8 +313,7 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/mesh.png" width="80%" alt="blob mesh"/>
 
-7) Quantize the original image to a small number of colors.
-    - Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or use 0 to skip quantization.
+7) Quantize the original image to a small number of colors (see the `num_colors` tuning note above).
 
 8) In each cell specified by the mesh, choose the most common color in the cell as the color for the pixel. Recreate the original image with one pixel per cell.
 

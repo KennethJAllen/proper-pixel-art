@@ -1,12 +1,9 @@
 """Configuration for the pixelate algorithm.
 
-All tunable parameters of the algorithm live here as dataclasses, grouped
-by algorithm stage. Defaults match the values that were previously hardcoded
-throughout ``mesh.py`` and ``colors.py`` so that ``PixelateConfig()`` reproduces
-the historical behavior exactly.
-
-A config may be loaded from a YAML file with :meth:`PixelateConfig.from_yaml`.
-Partial files are allowed: any key not present falls back to the default.
+All tunable parameters live here as dataclasses, grouped by algorithm stage.
+``PixelateConfig()`` holds the defaults; override individual fields directly or
+load a (possibly partial) config from YAML with :meth:`PixelateConfig.from_yaml`.
+Any key omitted from the YAML falls back to the default.
 """
 
 from dataclasses import dataclass, field, fields, replace
@@ -53,7 +50,9 @@ class ColorConfig:
     """Parameters controlling color selection, quantization and transparency."""
 
     alpha_threshold: int = 128  # alpha >= this is opaque (0-255)
-    transparency_majority_fraction: float = 0.5  # cell transparent if >= this fraction is transparent
+    transparency_majority_fraction: float = (
+        0.5  # cell transparent if >= this fraction is transparent
+    )
     quantize_method: str = "MAXCOVERAGE"  # PIL.Image.Quantize member name
     bin_size: int = 52  # RGB bin size for skip-quantization dominant color
     top_colors_limit: int = 8  # common colors sampled to pick a background
@@ -97,7 +96,9 @@ class PixelateConfig:
         with open(path) as f:
             data = yaml.safe_load(f) or {}
         if not isinstance(data, dict):
-            raise ValueError(f"Config file {path} must contain a mapping at the top level.")
+            raise ValueError(
+                f"Config file {path} must contain a mapping at the top level."
+            )
         return cls.from_dict(data)
 
     @classmethod

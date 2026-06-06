@@ -10,9 +10,8 @@ from proper_pixel_art import colors, utils
 from proper_pixel_art.config import MeshConfig
 from proper_pixel_art.utils import Lines, Mesh
 
-# Default values live in MeshConfig (the single source of truth). This
-# module-level instance lets the low-level helpers below default to those same
-# values without re-declaring any literals.
+# Shared defaults so the helpers below don't re-declare literals; MeshConfig
+# holds the canonical values.
 _DEFAULTS = MeshConfig()
 
 
@@ -22,15 +21,12 @@ def close_edges(
     """
     Apply a morphological closing to fill small gaps in edge map.
     """
-    # Use a rectangular kernel of size kernel_size x kernel_size
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
     closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
     return closed
 
 
-def cluster_lines(
-    lines: Lines, threshold: int = _DEFAULTS.cluster_threshold
-) -> Lines:
+def cluster_lines(lines: Lines, threshold: int = _DEFAULTS.cluster_threshold) -> Lines:
     """Remove lines that are too close to each other by clustering near values"""
     if not lines:
         return []
@@ -45,7 +41,9 @@ def cluster_lines(
     return [int(np.median(cluster)) for cluster in clusters]
 
 
-def detect_grid_lines(edges: np.ndarray, mesh_config: MeshConfig = MeshConfig()) -> Mesh:
+def detect_grid_lines(
+    edges: np.ndarray, mesh_config: MeshConfig = MeshConfig()
+) -> Mesh:
     """
     - Use Hough line transformation to detect the pixel edges.
     - Only keep lines that are close to vertical or horizontal
@@ -93,11 +91,11 @@ def get_pixel_width(
     """
     Takes list of line coordinates, and outlier fraction.
     Returns the predicted pixel width by filtering outliers and taking the median.
-    We assume that the grid spacing accress all sets of lines,
+    We assume the grid spacing is consistent across all sets of lines,
     then all grid spacings are concatenated.
 
     The resulting width does not have to be perfect because the color of the pixels
-    are detemined by which color is mostly in the corresponding cells.
+    is determined by which color is mostly in the corresponding cells.
 
     This method could be generalized to cases when the pixel size in the x direction
     is different from the y direction, then the width of each direction
@@ -252,7 +250,7 @@ def compute_mesh_with_scaling(
 def _is_trivial_mesh(img_mesh: Mesh) -> bool:
     """
     Returns True if no lines have been identified when computing the mesh.
-    That is, the points in mesh_x and mesh_y conist of the left, right, and top, bottom
+    That is, the points in mesh_x and mesh_y consist of the left, right, and top, bottom
     of the image respectively.
     """
     x_num = len(img_mesh[0])

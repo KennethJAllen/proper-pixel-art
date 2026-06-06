@@ -20,30 +20,25 @@ def downsample(
     color_config: ColorConfig = ColorConfig(),
 ) -> Image.Image:
     """
-    Downsample the image by looping over each cell in mesh and
-    selecting a representative color for each cell.
+    Collapse each mesh cell to a single representative color, returning one
+    output pixel per cell as an RGBA image.
 
-    Transparency handling:
-    - If >=50% of pixels in a cell are transparent, the entire cell becomes transparent (0,0,0,0)
-    - For skip_quantization=True, uses alpha channel from image directly
-    - For skip_quantization=False with original_alpha provided,
-      uses alpha channel from original_alpha array
+    A cell becomes transparent when enough of its pixels are transparent (see
+    ``color_config.transparency_majority_fraction``). When ``skip_quantization``
+    is True the alpha comes from ``image`` itself; otherwise it comes from
+    ``original_alpha`` (the quantized image has no usable alpha of its own).
 
     Args:
-        image: The image to downsample (RGB if quantized, RGBA if not)
-        mesh_lines: Tuple of (x_lines, y_lines) defining the pixel grid
-        skip_quantization: If True, use histogram-based color selection for RGBA
-        original_alpha: Optional numpy array of alpha channel values from original
-                       image. Used to preserve transparency through quantization.
-                       Only used when skip_quantization=False.
-
-    Returns:
-        RGBA image with downsampled pixels
+        image: The image to downsample (RGB if quantized, RGBA if not).
+        mesh_lines: (x_lines, y_lines) defining the pixel grid.
+        skip_quantization: Preserve original colors instead of quantized ones.
+        original_alpha: Alpha channel from the original image, used only when
+            skip_quantization is False to carry transparency through quantization.
     """
     lines_x, lines_y = mesh_lines
     height_result, width_result = len(lines_y) - 1, len(lines_x) - 1
 
-    # Single conversion at start
+    # RGBA when skipping quantization (we read alpha here); RGB otherwise.
     if skip_quantization:
         img_array = np.array(image.convert("RGBA"))
     else:
@@ -58,7 +53,6 @@ def downsample(
         cell = img_array[y0:y1, x0:x1]
 
         if skip_quantization:
-            # Skip quantization and use original colros
             out[j, i] = colors.get_cell_color_skip_quantization(
                 cell,
                 alpha_threshold=color_config.alpha_threshold,
@@ -127,7 +121,6 @@ def pixelate(
     Returns the true pixelated image.
     """
     # Resolution order: explicit argument > config > built-in defaults.
-    # A kwarg left at its None default means "not provided"; fall back to config.
     cfg = config if config is not None else PixelateConfig()
     overrides = {
         name: value
