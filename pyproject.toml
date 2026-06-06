@@ -4,7 +4,7 @@ version = "1.5.0"
 description = "Converts pixel-art-style images such as those from generative models or low-quality sprite web uploads to true resolution usable assets."
 authors = [{name = "Kenneth Allen"}]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 license = "MIT"
 keywords = [
     "pixel-art",
@@ -19,6 +19,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "Topic :: Multimedia :: Graphics :: Graphics Conversion",
     "Topic :: Games/Entertainment",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -26,7 +28,7 @@ classifiers = [
 dependencies = [
     "numpy>=2.2.4",
     "opencv-python-headless>=4.11.0.86",
-    "pillow>=11.1.0",
+    "pillow>=12.1.0",
     "pyyaml>=6.0",
 ]
 
