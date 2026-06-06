@@ -110,6 +110,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to a YAML config file of pixelation parameters. Any flags passed explicitly override values in the file.",
     )
+    parser.add_argument(
+        "--intermediate-dir",
+        dest="intermediate_dir",
+        type=Path,
+        default=None,
+        help="Directory to save images visualizing intermediate algorithm steps (created if needed).",
+    )
 
     # Flags default to None so unset ones fall back to --config; see pixelate().
     add_pixelation_args(parser)
@@ -158,8 +165,13 @@ def main() -> None:
     )
     overrides = {field: getattr(args, field) for field in pixelate_fields}
 
+    if args.intermediate_dir is not None:
+        args.intermediate_dir.mkdir(exist_ok=True, parents=True)
+
     img = Image.open(input_path)
-    pixelated = pixelate(img, config=config, **overrides)
+    pixelated = pixelate(
+        img, config=config, intermediate_dir=args.intermediate_dir, **overrides
+    )
 
     pixelated.save(out_path)
 
