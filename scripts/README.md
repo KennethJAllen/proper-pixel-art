@@ -98,16 +98,17 @@ See the main project README for more examples.
 
 ## gen-outputs
 
-Regenerate the committed golden outputs used by the visual regression tests
-(`tests/test_pixelate.py`). Run this **only after an intentional algorithm
-change**.
+Regenerate pixelation outputs for **visual quality validation** when changing the
+algorithm.
 
 ```bash
 uv run python scripts/gen_outputs.py
 ```
 
-For every case in `tests/cases.py` it pixelates the input asset and overwrites
-`assets/{name}/result.png` along with the intermediate visualizations
-(`mesh.png`, `edges.png`, `lines.png`, `closed_edges.png`,
-`quantized_original.png`). Review the resulting git image diff before committing
-— that diff is the visual review. See `CONTRIBUTING.md` for the full workflow.
+For every case in `tests/cases.py` it pixelates the input asset and writes the
+result plus all intermediate visualizations (`edges.png`, `closed_edges.png`,
+`lines.png`, `mesh.png`, `quantized_original.png`, `result.png`) to
+`tests/outputs/{name}/`. That directory is gitignored, so the committed examples
+under `assets/` stay frozen and no new binary blobs enter git history. Open
+`tests/outputs/{name}/` and compare it by eye against `assets/{name}/`. See
+`CONTRIBUTING.md` for the full workflow.

@@ -1,12 +1,14 @@
-"""Canonical pixelation test cases.
+"""Canonical pixelation cases.
 
-Single source of truth shared by the visual regression test
-(``tests/test_pixelate.py`` via ``tests/conftest.py``) and the golden
-regeneration script (``scripts/gen_outputs.py``). Keeping the case table here
-ensures the test and the "bless" script can never drift apart.
+Single source of truth for the visual pipeline, shared by the smoke test
+(``tests/test_pixelate.py`` via ``tests/conftest.py``) and the visual-output
+regeneration script (``scripts/gen_outputs.py``). Keeping the table here ensures
+the two never drift apart.
 
 Each case maps an asset name to its pixelation parameters and input image path.
-The committed golden output for a case lives at ``assets/{name}/result.png``.
+The curated example outputs under ``assets/{name}/`` (referenced by the README)
+are committed and frozen -- the pipeline never overwrites them. Regenerated
+outputs for visual quality validation go to a gitignored directory instead.
 """
 
 from pathlib import Path
@@ -52,8 +54,3 @@ PIXELATE_PNG_CASES: dict[str, dict] = {
         "pumpkin", num_colors=0, result_scale=5, transparent_background=False
     ),
 }
-
-
-def golden_path(name: str) -> Path:
-    """Committed reference output for a case."""
-    return ASSETS / name / "result.png"

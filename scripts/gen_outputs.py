@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Regenerate the committed golden outputs for the visual regression tests.
+"""Regenerate pixelation outputs for visual quality validation.
 
-Run this after an *intentional* algorithm change:
+Run this when you want to eyeball the effect of an algorithm change:
 
     uv run python scripts/gen_outputs.py
 
-For every case in ``tests/cases.py`` it pixelates the input asset and overwrites
-``assets/{name}/result.png`` (plus the intermediate visualizations: mesh.png,
-edges.png, lines.png, closed_edges.png, quantized_original.png). Review the
-resulting git image diff before committing -- that diff is the visual review.
+For every case in ``tests/cases.py`` it pixelates the input asset and writes the
+result plus every intermediate visualization (edges.png, closed_edges.png,
+lines.png, mesh.png, quantized_original.png, result.png) to
+``tests/outputs/{name}/``.
+
+That directory is gitignored on purpose: the committed examples in ``assets/``
+stay frozen, so a slight algorithm drift never adds new binary blobs to history.
+To validate quality, open ``tests/outputs/{name}/`` and compare it by eye against
+the corresponding committed example in ``assets/{name}/``.
 """
 
 import sys
@@ -21,13 +26,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from proper_pixel_art import pixelate  # noqa: E402
-from tests.cases import PIXELATE_PNG_CASES, golden_path  # noqa: E402
+from tests.cases import PIXELATE_PNG_CASES  # noqa: E402
+
+OUTPUT_DIR = ROOT / "tests" / "outputs"
 
 
 def main() -> None:
     for name, params in PIXELATE_PNG_CASES.items():
-        asset_dir = ROOT / "assets" / name
-        asset_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = OUTPUT_DIR / name
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"Regenerating {name}...")
         img = Image.open(params["path"])
@@ -36,16 +43,16 @@ def main() -> None:
             num_colors=params["num_colors"],
             scale_result=params["result_scale"],
             transparent_background=params["transparent_background"],
-            intermediate_dir=asset_dir,
+            intermediate_dir=out_dir,
         )
-
-        out = golden_path(name)
-        result.save(out)
-        print(f"  wrote {out.relative_to(ROOT)} ({result.width}x{result.height})")
+        result.save(out_dir / "result.png")
+        print(f"  wrote {(out_dir / 'result.png').relative_to(ROOT)} "
+              f"({result.width}x{result.height})")
 
     print(
-        f"\nRegenerated {len(PIXELATE_PNG_CASES)} golden(s). "
-        "Review the git image diff before committing."
+        f"\nRegenerated {len(PIXELATE_PNG_CASES)} case(s) in "
+        f"{OUTPUT_DIR.relative_to(ROOT)}/. "
+        "Compare them by eye against the committed examples in assets/."
     )
 
 
