@@ -80,7 +80,15 @@ def parse_args() -> argparse.Namespace:
         version=f"%(prog)s {version('proper-pixel-art')}",
     )
     parser.add_argument(
-        "input_path", type=Path, help="Path to the source input file."
+        "input_path", type=Path, nargs="?", help="Path to the source input file."
+    )
+    parser.add_argument(
+        "-i",
+        "--input",
+        dest="input_path_flag",
+        metavar="INPUT_PATH",
+        type=Path,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "-o",
@@ -94,7 +102,16 @@ def parse_args() -> argparse.Namespace:
     # Add common pixelation arguments
     add_pixelation_args(parser)
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # Either take the input as the first argument or use the -i flag
+    if args.input_path is None and args.input_path_flag is None:
+        parser.error("You must provide an input path (positional or with -i).")
+    args.input_path = (
+        args.input_path if args.input_path is not None else args.input_path_flag
+    )
+
+    return args
 
 
 def resolve_output_path(

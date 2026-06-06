@@ -26,13 +26,13 @@ uv sync --extra scripts
 #### Basic usage
 
 ```bash
-uv run ppa-gen --prompt "A 16 bit cute pixel art cat"
+uv run python scripts/ppa_gen.py --prompt "A 16 bit cute pixel art cat"
 ```
 
 #### With Additional Options
 
 ```bash
-uv run ppa-gen \
+uv run python scripts/ppa_gen.py \
   --prompt "A 16 bit pixel art robot character with a transparent background" \
   --scale-result 10 \
   --transparent \
@@ -76,7 +76,7 @@ Generated files are named with timestamps, ending with `original.png` for origin
 
 ### Example
 
-```uv run ppa-gen --prompt "A 16 bit pixel art blob with a transparent background"```
+```uv run python scripts/ppa_gen.py --prompt "A 16 bit pixel art blob with a transparent background"```
 
 <table align="center" width="100%">
   <tr>

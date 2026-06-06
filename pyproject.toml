@@ -15,7 +15,7 @@ keywords = [
     "generative-art",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Topic :: Multimedia :: Graphics :: Graphics Conversion",
     "Topic :: Games/Entertainment",
@@ -44,7 +44,6 @@ scripts = [
 [project.scripts]
 ppa = "proper_pixel_art.cli:main"
 ppa-web = "proper_pixel_art.web:main"
-ppa-gen = "scripts.ppa_gen:main"
 
 [build-system]
 requires = ["hatchling"]
