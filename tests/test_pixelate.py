@@ -1,12 +1,9 @@
 """Smoke test for the pixelation pipeline.
 
 Runs the algorithm over every case in ``tests/cases.py`` and asserts it completes
-without error and produces a non-empty image. This guards against execution
-regressions (exceptions, empty output) in CI.
-
-It does *not* assert on visual quality -- that is validated by eye. Regenerate the
-outputs with ``uv run python scripts/gen_outputs.py`` and compare them against the
-committed examples in ``assets/``. See ``CONTRIBUTING.md``.
+without error and produces a non-empty image, guarding against execution
+regressions in CI. Visual quality is validated separately by eye -- see
+CONTRIBUTING.md -> Visual validation.
 """
 
 from pathlib import Path

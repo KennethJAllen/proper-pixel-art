@@ -68,3 +68,6 @@ exclude = ["assets"]
 
 [tool.ruff]
 lint.select = ["I"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

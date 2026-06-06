@@ -86,6 +86,16 @@ def test_unknown_quantize_method_raises():
         ColorConfig(quantize_method="NOPE").quantize
 
 
+def test_bin_size_zero_raises():
+    with pytest.raises(ValueError, match="bin_size must be >= 1"):
+        ColorConfig(bin_size=0)
+
+
+def test_background_candidates_coerced_to_tuples():
+    cfg = ColorConfig(background_candidates=[[0, 255, 255]])
+    assert cfg.background_candidates == [(0, 255, 255)]
+
+
 def test_theta_deg_to_radians():
     assert MeshConfig().hough.theta_rad == pytest.approx(np.deg2rad(1.0))
 

@@ -282,7 +282,7 @@ def get_cell_color_skip_quantization(
 def palette_img(
     image: Image.Image,
     num_colors: int = 16,
-    color_config: ColorConfig = ColorConfig(),
+    color_config: ColorConfig | None = None,
     output_dir: Path | None = None,
 ) -> Image.Image:
     """
@@ -294,6 +294,7 @@ def palette_img(
     those, Quantize.FASTOCTREE can work better. If the colors look wrong, try
     increasing num_colors.
     """
+    color_config = color_config or ColorConfig()
     image_rgb = clamp_alpha(
         image,
         alpha_threshold=color_config.alpha_threshold,

@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
 """Regenerate pixelation outputs for visual quality validation.
 
-Run this when you want to eyeball the effect of an algorithm change:
-
     uv run python scripts/gen_outputs.py
 
-For every case in ``tests/cases.py`` it pixelates the input asset and writes the
-result plus every intermediate visualization (edges.png, closed_edges.png,
-lines.png, mesh.png, quantized_original.png, result.png) to
-``tests/outputs/{name}/``.
-
-That directory is gitignored on purpose: the committed examples in ``assets/``
-stay frozen, so a slight algorithm drift never adds new binary blobs to history.
-To validate quality, open ``tests/outputs/{name}/`` and compare it by eye against
-the corresponding committed example in ``assets/{name}/``.
+Pixelates every case in ``tests/cases.py`` into the gitignored
+``tests/outputs/{name}/`` for eyeballing algorithm changes. See
+CONTRIBUTING.md -> Visual validation.
 """
 
 import sys

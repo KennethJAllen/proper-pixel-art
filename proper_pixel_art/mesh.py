@@ -41,9 +41,7 @@ def cluster_lines(lines: Lines, threshold: int = _DEFAULTS.cluster_threshold) ->
     return [int(np.median(cluster)) for cluster in clusters]
 
 
-def detect_grid_lines(
-    edges: np.ndarray, mesh_config: MeshConfig = MeshConfig()
-) -> Mesh:
+def detect_grid_lines(edges: np.ndarray, mesh_config: MeshConfig | None = None) -> Mesh:
     """
     - Use Hough line transformation to detect the pixel edges.
     - Only keep lines that are close to vertical or horizontal
@@ -51,6 +49,7 @@ def detect_grid_lines(
     Return:
     - two lists: x-coordinates (vertical lines) and y-coordinates (horizontal lines)
     """
+    mesh_config = mesh_config or MeshConfig()
     hough = mesh_config.hough
     hough_lines = cv2.HoughLinesP(
         edges,
@@ -151,7 +150,7 @@ def compute_mesh(
     img: Image.Image,
     output_dir: Path | None = None,
     pixel_width: int | None = None,
-    mesh_config: MeshConfig = MeshConfig(),
+    mesh_config: MeshConfig | None = None,
 ) -> Mesh:
     """
     Finds grid lines of a high resolution noisy image.
@@ -174,6 +173,7 @@ def compute_mesh(
     Note: this could even be generalized to detect grid lines that
     have been distorted via linear transformation.
     """
+    mesh_config = mesh_config or MeshConfig()
     # Crop border and zero out mostly transparent pixels from alpha.
     # The grayscale clamp here only suppresses transparent-edge noise before edge
     # detection, so it intentionally uses the default alpha threshold rather than
@@ -221,7 +221,7 @@ def compute_mesh_with_scaling(
     upscale_factor: int = 2,
     output_dir: Path | None = None,
     pixel_width: int | None = None,
-    mesh_config: MeshConfig = MeshConfig(),
+    mesh_config: MeshConfig | None = None,
 ) -> tuple[Mesh, int]:
     """
     Try to compute the mesh on on the image.

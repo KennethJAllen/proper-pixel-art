@@ -40,7 +40,7 @@ uv sync --extra web
 
 ## Usage
 
-First, obtain a source pixel-art-style image (e.g. a pixel-art-style image from a generative model such as ChatGPT Images 2.0 or a web upload of pixel-art).
+First, obtain a source pixel-art-style image (e.g. a pixel-art-style image from a generative model such as OpenAI's `gpt-image-2` or a web upload of pixel-art).
 
 > The examples below assume you installed via `pip install` or `uv add` (commands are on your `PATH`). If you installed from source with `uv sync`, prefix each command with `uv run` (e.g. `uv run ppa ...`).
 

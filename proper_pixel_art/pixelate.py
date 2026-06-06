@@ -17,7 +17,7 @@ def downsample(
     mesh_lines: Mesh,
     skip_quantization: bool = False,
     original_alpha: np.ndarray | None = None,
-    color_config: ColorConfig = ColorConfig(),
+    color_config: ColorConfig | None = None,
 ) -> Image.Image:
     """
     Collapse each mesh cell to a single representative color, returning one
@@ -35,6 +35,7 @@ def downsample(
         original_alpha: Alpha channel from the original image, used only when
             skip_quantization is False to carry transparency through quantization.
     """
+    color_config = color_config or ColorConfig()
     lines_x, lines_y = mesh_lines
     height_result, width_result = len(lines_y) - 1, len(lines_x) - 1
 

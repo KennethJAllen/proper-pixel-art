@@ -1,7 +1,8 @@
 from pathlib import Path
 
 import pytest
-from cases import PIXELATE_PNG_CASES
+
+from tests.cases import PIXELATE_PNG_CASES
 
 
 @pytest.fixture(name="assets")

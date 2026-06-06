@@ -59,6 +59,16 @@ class ColorConfig:
     thumbnail_size: tuple[int, int] = (160, 160)  # downscale size for color analysis
     background_candidates: list[RGB] | None = None  # override background palette
 
+    def __post_init__(self) -> None:
+        # bin_size is a divisor in _dominant_rgb_by_binning (num_bins =
+        # 255 // bin_size + 1); 0 would raise an opaque ZeroDivisionError later.
+        if self.bin_size < 1:
+            raise ValueError(f"bin_size must be >= 1, got {self.bin_size}.")
+        # Normalize YAML lists-of-lists into RGB tuples. _build skips this field
+        # because its default is None rather than a tuple.
+        if self.background_candidates is not None:
+            self.background_candidates = [tuple(c) for c in self.background_candidates]
+
     @property
     def quantize(self) -> int:
         """Resolve ``quantize_method`` to a ``PIL.Image.Quantize`` value."""

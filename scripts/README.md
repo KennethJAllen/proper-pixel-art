@@ -105,10 +105,7 @@ algorithm.
 uv run python scripts/gen_outputs.py
 ```
 
-For every case in `tests/cases.py` it pixelates the input asset and writes the
-result plus all intermediate visualizations (`edges.png`, `closed_edges.png`,
-`lines.png`, `mesh.png`, `quantized_original.png`, `result.png`) to
-`tests/outputs/{name}/`. That directory is gitignored, so the committed examples
-under `assets/` stay frozen and no new binary blobs enter git history. Open
-`tests/outputs/{name}/` and compare it by eye against `assets/{name}/`. See
-`CONTRIBUTING.md` for the full workflow.
+Pixelates every case in `tests/cases.py` into the gitignored
+`tests/outputs/{name}/` for eyeballing algorithm changes. See
+[`CONTRIBUTING.md`](../.github/CONTRIBUTING.md) → Visual validation for the full
+workflow.
