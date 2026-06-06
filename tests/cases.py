@@ -43,9 +43,7 @@ PIXELATE_PNG_CASES: dict[str, dict] = {
     "ash": _case("ash", num_colors=16, result_scale=5, transparent_background=False),
     "bat": _case("bat", num_colors=16, result_scale=5, transparent_background=True),
     "blob": _case("blob", num_colors=16, result_scale=25, transparent_background=False),
-    "demon": _case(
-        "demon", num_colors=64, result_scale=5, transparent_background=True
-    ),
+    "demon": _case("demon", num_colors=64, result_scale=5, transparent_background=True),
     "mountain": _case(
         "mountain", num_colors=64, result_scale=5, transparent_background=False
     ),

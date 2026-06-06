@@ -46,8 +46,10 @@ def main() -> None:
             intermediate_dir=out_dir,
         )
         result.save(out_dir / "result.png")
-        print(f"  wrote {(out_dir / 'result.png').relative_to(ROOT)} "
-              f"({result.width}x{result.height})")
+        print(
+            f"  wrote {(out_dir / 'result.png').relative_to(ROOT)} "
+            f"({result.width}x{result.height})"
+        )
 
     print(
         f"\nRegenerated {len(PIXELATE_PNG_CASES)} case(s) in "
