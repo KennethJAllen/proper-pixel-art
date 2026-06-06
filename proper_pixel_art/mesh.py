@@ -218,7 +218,7 @@ def compute_mesh(
 
 def compute_mesh_with_scaling(
     img: Image.Image,
-    upscale_factor: int,
+    upscale_factor: int = 2,
     output_dir: Path | None = None,
     pixel_width: int | None = None,
     mesh_config: MeshConfig = MeshConfig(),
