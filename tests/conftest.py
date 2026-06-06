@@ -51,7 +51,7 @@ def fixture_pixelate_png_test_params(assets: Path) -> dict[str, dict]:
         },
         # Test case for skipping quantization
         "pumpkin": {
-            "num_colors": None,
+            "num_colors": 0,
             "result_scale": 5,
             "transparent_background": False,
             "path": assets / "pumpkin" / "pumpkin.png",

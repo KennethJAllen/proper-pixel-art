@@ -5,18 +5,30 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageColor
-from PIL.Image import Quantize
+
+from proper_pixel_art.config import ColorConfig
 
 RGB = tuple[int, int, int]
 RGBA = tuple[int, int, int, int]
 
-# Alpha threshold for determining pixel opacity
-# Pixels with alpha >= this value are considered opaque
-ALPHA_THRESHOLD = 128
+# Default values live in ColorConfig (the single source of truth). This
+# module-level instance lets the low-level helpers below default to those same
+# values without re-declaring any literals.
+_DEFAULTS = ColorConfig()
+
+# Alpha threshold for determining pixel opacity (alpha >= this is opaque).
+# Kept as a module constant for backwards compatibility; the canonical value
+# lives in ColorConfig.alpha_threshold.
+ALPHA_THRESHOLD = _DEFAULTS.alpha_threshold
 
 
-def _is_majority_transparent(opaque_count: int, total_count: int) -> bool:
-    return opaque_count <= total_count / 2
+def _is_majority_transparent(
+    opaque_count: int,
+    total_count: int,
+    majority_fraction: float = _DEFAULTS.transparency_majority_fraction,
+) -> bool:
+    """Cell is transparent if at least ``majority_fraction`` of pixels are transparent."""
+    return opaque_count <= total_count * (1 - majority_fraction)
 
 
 def _rgb_dist(a: RGB, b: RGB) -> int:
@@ -26,11 +38,14 @@ def _rgb_dist(a: RGB, b: RGB) -> int:
 
 
 def _top_opaque_colors(
-    img: Image.Image, alpha_threshold: int, limit: int = 8
+    img: Image.Image,
+    alpha_threshold: int,
+    limit: int = _DEFAULTS.top_colors_limit,
+    thumbnail_size: tuple[int, int] = _DEFAULTS.thumbnail_size,
 ) -> list[RGB]:
     """Return the most common opaque colors (RGB) up to limit."""
     rgba = img.convert("RGBA").copy()
-    rgba.thumbnail((160, 160))  # speed and de-noise tiny details
+    rgba.thumbnail(thumbnail_size)  # speed and de-noise tiny details
     counts = Counter()
     for r, g, b, a in rgba.get_flattened_data():
         if a >= alpha_threshold:
@@ -38,26 +53,31 @@ def _top_opaque_colors(
     return [c for c, _ in counts.most_common(limit)]
 
 
-def _pick_background(colors: list[RGB]) -> RGB:
+DEFAULT_BACKGROUND_CANDIDATES: list[RGB] = [
+    (0, 255, 255),  # cyan
+    (255, 255, 255),  # white
+    (255, 0, 0),  # red
+    (0, 255, 0),  # green
+    (0, 0, 255),  # blue
+    (255, 255, 0),  # yellow
+    (255, 0, 255),  # magenta
+    (255, 128, 0),  # orange
+    (128, 0, 255),  # violet
+    (0, 128, 255),  # sky
+    (0, 255, 128),  # mint
+    (255, 0, 128),  # pink
+]
+
+
+def _pick_background(
+    colors: list[RGB], candidates: list[RGB] | None = None
+) -> RGB:
     """
     Pick the candidate farthest from the common colors.
     Used for choosing the color of pixels with alpha to avoid clashing
     with the actual colors in the image
     """
-    background_color_candidates: list[RGB] = [
-        (0, 255, 255),  # cyan
-        (255, 255, 255),  # white
-        (255, 0, 0),  # red
-        (0, 255, 0),  # green
-        (0, 0, 255),  # blue
-        (255, 255, 0),  # yellow
-        (255, 0, 255),  # magenta
-        (255, 128, 0),  # orange
-        (128, 0, 255),  # violet
-        (0, 128, 255),  # sky
-        (0, 255, 128),  # mint
-        (255, 0, 128),  # pink
-    ]
+    background_color_candidates = candidates or DEFAULT_BACKGROUND_CANDIDATES
 
     if not colors:
         return (255, 255, 255)
@@ -74,6 +94,9 @@ def clamp_alpha(
     alpha_threshold: int = ALPHA_THRESHOLD,
     mode: str = "RGB",
     background_hex: str | None = None,
+    limit: int = _DEFAULTS.top_colors_limit,
+    thumbnail_size: tuple[int, int] = _DEFAULTS.thumbnail_size,
+    background_candidates: list[RGB] | None = None,
 ) -> Image.Image:
     """
     Replace pixels with alpha < threshold by a background color.
@@ -84,8 +107,10 @@ def clamp_alpha(
         raise ValueError("mode must be 'RGB' or 'L'")
 
     if background_hex is None:
-        common = _top_opaque_colors(image, alpha_threshold)
-        bg_rgb = _pick_background(common)
+        common = _top_opaque_colors(
+            image, alpha_threshold, limit=limit, thumbnail_size=thumbnail_size
+        )
+        bg_rgb = _pick_background(common, candidates=background_candidates)
     else:
         bg_rgb = ImageColor.getrgb(background_hex)
 
@@ -133,7 +158,12 @@ def get_opaque_cell_color(cell_pixels: np.ndarray) -> RGBA:
     return (*cell_color, 255)
 
 
-def get_cell_color_with_alpha(cell_pixels: np.ndarray, cell_alpha: np.ndarray) -> RGBA:
+def get_cell_color_with_alpha(
+    cell_pixels: np.ndarray,
+    cell_alpha: np.ndarray,
+    alpha_threshold: int = ALPHA_THRESHOLD,
+    majority_fraction: float = _DEFAULTS.transparency_majority_fraction,
+) -> RGBA:
     """
     Select representative color for a quantized cell, considering transparency.
 
@@ -149,10 +179,10 @@ def get_cell_color_with_alpha(cell_pixels: np.ndarray, cell_alpha: np.ndarray) -
         RGBA tuple - either (0,0,0,0) for transparent or (R,G,B,255) for opaque
     """
     total_pixels = cell_alpha.size
-    opaque_count = np.sum(cell_alpha >= ALPHA_THRESHOLD)
+    opaque_count = np.sum(cell_alpha >= alpha_threshold)
 
     # If majority is transparent (>= 50%), return fully transparent
-    if _is_majority_transparent(opaque_count, total_pixels):
+    if _is_majority_transparent(opaque_count, total_pixels, majority_fraction):
         return (0, 0, 0, 0)
 
     # Otherwise return most common color with full opacity
@@ -160,7 +190,9 @@ def get_cell_color_with_alpha(cell_pixels: np.ndarray, cell_alpha: np.ndarray) -
     return cell_color
 
 
-def _dominant_rgb_by_binning(rgb_pixels: np.ndarray) -> RGB:
+def _dominant_rgb_by_binning(
+    rgb_pixels: np.ndarray, bin_size: int = _DEFAULTS.bin_size
+) -> RGB:
     """
     Find the dominant color using offset binning algorithm.
 
@@ -192,12 +224,13 @@ def _dominant_rgb_by_binning(rgb_pixels: np.ndarray) -> RGB:
         median = np.median(rgb_pixels, axis=0).astype(np.uint8)
         return (int(median[0]), int(median[1]), int(median[2]))
 
-    bin_size = 52
+    # Number of bins per channel given the bin size (5 for the default size of 52)
+    num_bins = 255 // bin_size + 1
 
     # Grid 1: standard binning (boundaries at 0, 52, 104...)
     bins1 = rgb_pixels // bin_size
-    indices1 = bins1[:, 0] * 25 + bins1[:, 1] * 5 + bins1[:, 2]
-    counts1 = np.bincount(indices1, minlength=125)
+    indices1 = bins1[:, 0] * num_bins**2 + bins1[:, 1] * num_bins + bins1[:, 2]
+    counts1 = np.bincount(indices1, minlength=num_bins**3)
     dominant1 = np.argmax(counts1)
     max_count1 = counts1[dominant1]
 
@@ -205,8 +238,8 @@ def _dominant_rgb_by_binning(rgb_pixels: np.ndarray) -> RGB:
     # Add offset before dividing, clamp to avoid overflow
     offset = bin_size // 2
     bins2 = np.minimum(rgb_pixels + offset, 255) // bin_size
-    indices2 = bins2[:, 0] * 25 + bins2[:, 1] * 5 + bins2[:, 2]
-    counts2 = np.bincount(indices2, minlength=125)
+    indices2 = bins2[:, 0] * num_bins**2 + bins2[:, 1] * num_bins + bins2[:, 2]
+    counts2 = np.bincount(indices2, minlength=num_bins**3)
     dominant2 = np.argmax(counts2)
     max_count2 = counts2[dominant2]
 
@@ -223,7 +256,10 @@ def _dominant_rgb_by_binning(rgb_pixels: np.ndarray) -> RGB:
 
 
 def get_cell_color_skip_quantization(
-    cell_pixels: np.ndarray, alpha_threshold: int = ALPHA_THRESHOLD
+    cell_pixels: np.ndarray,
+    alpha_threshold: int = ALPHA_THRESHOLD,
+    majority_fraction: float = _DEFAULTS.transparency_majority_fraction,
+    bin_size: int = _DEFAULTS.bin_size,
 ) -> RGBA:
     """
     Select representative RGBA color for a cell when quantization is skipped.
@@ -258,19 +294,19 @@ def get_cell_color_skip_quantization(
     opaque_pixels = pixels[opaque_mask]
 
     # If majority is transparent (>= 50%), return fully transparent
-    if _is_majority_transparent(len(opaque_pixels), total_pixels):
+    if _is_majority_transparent(len(opaque_pixels), total_pixels, majority_fraction):
         return (0, 0, 0, 0)
 
     # Get RGB of opaque pixels and find dominant color
     rgb_pixels = opaque_pixels[:, :3]
-    r, g, b = _dominant_rgb_by_binning(rgb_pixels)
+    r, g, b = _dominant_rgb_by_binning(rgb_pixels, bin_size=bin_size)
     return (int(r), int(g), int(b), 255)
 
 
 def palette_img(
     image: Image.Image,
     num_colors: int = 16,
-    quantize_method: int = Quantize.MAXCOVERAGE,
+    color_config: ColorConfig = ColorConfig(),
     output_dir: Path | None = None,
 ) -> Image.Image:
     """
@@ -286,9 +322,16 @@ def palette_img(
 
     If the colors of the result don't look right, try increasing num_colors.
     """
-    image_rgb = clamp_alpha(image, mode="RGB")
+    image_rgb = clamp_alpha(
+        image,
+        alpha_threshold=color_config.alpha_threshold,
+        mode="RGB",
+        limit=color_config.top_colors_limit,
+        thumbnail_size=color_config.thumbnail_size,
+        background_candidates=color_config.background_candidates,
+    )
     quantized_img = image_rgb.quantize(
-        colors=num_colors, method=quantize_method, dither=Image.Dither.NONE
+        colors=num_colors, method=color_config.quantize, dither=Image.Dither.NONE
     )
     if output_dir is not None:
         quantized_img.save(output_dir / "quantized_original.png")

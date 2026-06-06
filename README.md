@@ -65,11 +65,11 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 | --------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | INPUT (positional)                | Source file in pixel-art-style                                                                            |
 | `-o`, `--output` `<path>`         | Output directory or file path for result. (default: '.')                                                  |
-| `-c`, `--colors` `<int>`          | Number of colors for output (1-256). Omit to skip quantization and preserve all colors. May need to try a few different values. (default None) |
-| `-s`, `--scale-result` `<int>`    | Width/height of each "pixel" in the output. (default: 1)                                                  |
+| `-c`, `--colors` `<int>`          | Number of colors for output (1-256). Use 0 to skip quantization and preserve all colors. May need to try a few different values. (default 0) |
+| `-s`, `--scale-result` `<int>`    | Width/height of each "pixel" in the output. 1 = no scaling. (default: 1)                                  |
 | `-t`, `--transparent` `<bool>`    | Output with transparent background. (default: off)                                                        |
 | `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
-| `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. If not set, it will be determined automatically. (default: None)  |
+| `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. Use 0 to determine it automatically. (default: 0)                 |
 
 #### Example
 
@@ -77,7 +77,7 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 ppa assets/blob/blob.png -c 16 -s 5 -t
 ```
 
-Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or omit for auto-color detection.
+Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or use 0 to skip quantization.
 
 ### Use Without Cloning
 
@@ -108,7 +108,7 @@ result = pixelate(image, num_colors=16)
 result.save('path/to/output.png')
 ```
 
-Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or omit for auto-color detection.
+Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or use 0 to skip quantization.
 
 #### Parameters
 
@@ -116,9 +116,9 @@ Note: `num_colors` is the parameter most likely to need tuning. Try values like 
 
   - A PIL image to pixelate.
 
-- `num_colors` : `int | None`
+- `num_colors` : `int`
 
-  - The number of colors in result (1-256). Omit to skip quantization and preserve all colors.
+  - The number of colors in result (1-256). Use 0 to skip quantization and preserve all colors.
   - May need to try a few values if the colors don't look right.
   - 8, 16, 32, or 64 typically works for quantized output.
 
@@ -128,7 +128,7 @@ Note: `num_colors` is the parameter most likely to need tuning. Try values like 
 
 - `scale_result` : `int`
 
-  - Upscale result after algorithm is complete if not None.
+  - Upscale result after algorithm is complete. 1 = no scaling.
 
 - `transparent_background` : `bool`
   - If True, flood fills each corner of the result with transparent alpha.
@@ -136,12 +136,35 @@ Note: `num_colors` is the parameter most likely to need tuning. Try values like 
 - `intermediate_dir` : `Path | None`
   - Directory to save images visualizing intermediate steps of algorithm. Useful for development.
 
-- `pixel_width` : `int | None`
-  - Width of the pixels in the input image. If not set, it will be determined automatically. It may be helpful to increase this parameter if not enough pixel edges are being detected.
+- `pixel_width` : `int`
+  - Width of the pixels in the input image. Use 0 to determine it automatically. It may be helpful to increase this parameter if not enough pixel edges are being detected.
+
+- `config` : `PixelateConfig | None`
+  - A bundle of *every* tunable parameter, including the deeper mesh-detection (Canny, Hough, line clustering) and color (alpha/transparency thresholds, quantization method, color binning) settings that are not exposed as direct arguments. Load one from a YAML file with `PixelateConfig.from_yaml(path)`. Any explicit argument above overrides the matching value in `config`.
 
 #### Returns
 
 A PIL image with true pixel resolution and quantized colors.
+
+### Configuration file
+
+All tunable parameters can be collected in a YAML file so you can fine-tune the algorithm without changing code. See [`config.example.yaml`](config.example.yaml) for the full list of keys with their defaults. Any key you omit falls back to the default, so partial files are fine.
+
+```python
+from PIL import Image
+from proper_pixel_art import pixelate
+from proper_pixel_art.config import PixelateConfig
+
+config = PixelateConfig.from_yaml('config.yaml')
+result = pixelate(Image.open('input.png'), config=config)
+```
+
+From the CLI, pass `--config`. Flags given explicitly override values from the file:
+
+```bash
+ppa input.png --config config.yaml      # use the file
+ppa input.png --config config.yaml -c 8 # but override num_colors to 8
+```
 
 ## Examples
 
@@ -293,7 +316,7 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/mesh.png" width="80%" alt="blob mesh"/>
 
 7) Quantize the original image to a small number of colors.
-    - Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or omit for auto-color detection.
+    - Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or use 0 to skip quantization.
 
 8) In each cell specified by the mesh, choose the most common color in the cell as the color for the pixel. Recreate the original image with one pixel per cell.
 
