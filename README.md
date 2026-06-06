@@ -74,7 +74,7 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 #### Example
 
 ```bash
-ppa assets/blob/blob.png -c 16 -s 5 -t
+ppa assets/blob/blob.png -c 16 -s 25
 ```
 
 Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or use 0 to skip quantization.

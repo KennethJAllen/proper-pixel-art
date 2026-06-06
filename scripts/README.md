@@ -95,3 +95,19 @@ Generated files are named with timestamps, ending with `original.png` for origin
 </table>
 
 See the main project README for more examples.
+
+## gen-outputs
+
+Regenerate the committed golden outputs used by the visual regression tests
+(`tests/test_pixelate.py`). Run this **only after an intentional algorithm
+change**.
+
+```bash
+uv run python scripts/gen_outputs.py
+```
+
+For every case in `tests/cases.py` it pixelates the input asset and overwrites
+`assets/{name}/result.png` along with the intermediate visualizations
+(`mesh.png`, `edges.png`, `lines.png`, `closed_edges.png`,
+`quantized_original.png`). Review the resulting git image diff before committing
+— that diff is the visual review. See `CONTRIBUTING.md` for the full workflow.
