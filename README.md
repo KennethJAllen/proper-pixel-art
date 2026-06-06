@@ -42,20 +42,21 @@ uv sync --extra web
 
 First, obtain a source pixel-art-style image (e.g. a pixel-art-style image from a generative model such as ChatGPT Images 2.0 or a web upload of pixel-art).
 
+> The examples below assume you installed via `pip install` or `uv add` (commands are on your `PATH`). If you installed from source with `uv sync`, prefix each command with `uv run` (e.g. `uv run ppa ...`).
+
 ### Web Interface
 
 Opens a browser interface where you can upload an image and adjust settings interactively.
 
 ```bash
-uv sync --extra web
-uv run ppa-web
+ppa-web
 # Opens http://127.0.0.1:7860
 ```
 
 ### CLI
 
 ```bash
-uv run ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
+ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 ```
 
 #### Options
@@ -73,7 +74,7 @@ uv run ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 #### Example
 
 ```bash
-uv run ppa assets/blob/blob.png -c 16 -s 5 -t
+ppa assets/blob/blob.png -c 16 -s 5 -t
 ```
 
 Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or omit for auto-color detection.
@@ -121,7 +122,7 @@ Note: `num_colors` is the parameter most likely to need tuning. Try values like 
   - May need to try a few values if the colors don't look right.
   - 8, 16, 32, or 64 typically works for quantized output.
 
-- `initial_upscale` : `int`
+- `initial_upscale_factor` : `int`
 
   - Upscale initial image. This may help detect lines.
 
