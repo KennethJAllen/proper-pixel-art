@@ -1,6 +1,7 @@
 .venv/
-output/
-tests/outputs/
-notebooks/
 *__pycache__*
 .env
+
+output/
+tests/outputs/
+assets/video
