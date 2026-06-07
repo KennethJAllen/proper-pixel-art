@@ -1,0 +1,58 @@
+name: Release on version bump
+on:
+  push:
+    branches: [main]
+    paths: ["pyproject.toml"]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Read version
+        id: ver
+        run: |
+          v=$(grep -m1 '^version' pyproject.toml | sed -E 's/.*"(.*)".*/\1/')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Skip if release exists
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install uv
+        if: steps.check.outputs.exists == 'false'
+        uses: astral-sh/setup-uv@v8.1.0
+      - name: Build package
+        if: steps.check.outputs.exists == 'false'
+        run: uv build
+      - name: Create GitHub Release
+        # Before publish: a PyPI failure leaves a deletable release, not an
+        # orphaned package. Re-runs are idempotent via the release-exists check.
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.ver.outputs.version }}" \
+            --title "v${{ steps.ver.outputs.version }}" \
+            --generate-notes
+      - name: Publish to PyPI
+        # Needs PyPI trusted publishing configured in project settings. If you
+        # set it to require a GitHub environment, add `environment: <name>` here.
+        # skip-existing keeps re-runs idempotent.
+        if: steps.check.outputs.exists == 'false'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true

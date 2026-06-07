@@ -4,7 +4,7 @@ Scripts for generating pixel art using AI models.
 
 ## ppa-gen
 
-Generate pixel art images using OpenAI's gpt-image-1.5 API and automatically pixelate them using the proper-pixel-art library.
+Generate pixel art images using OpenAI's gpt-image-2 API and automatically pixelate them using the proper-pixel-art library.
 
 ### Setup
 
@@ -19,20 +19,23 @@ uv sync --extra scripts
 1. [Create a new API key](https://platform.openai.com/api-keys)
 2. Create a `.env` file in the project root
 3. Add your API key to `.env`:
-4. `OPENAI_API_KEY=sk-your-api-key-here`
+
+   ```
+   OPENAI_API_KEY=sk-your-api-key-here
+   ```
 
 ### Usage
 
 #### Basic usage
 
 ```bash
-uv run ppa-gen --prompt "A 16 bit cute pixel art cat"
+uv run python scripts/ppa_gen.py --prompt "A 16 bit cute pixel art cat"
 ```
 
 #### With Additional Options
 
 ```bash
-uv run ppa-gen \
+uv run python scripts/ppa_gen.py \
   --prompt "A 16 bit pixel art robot character with a transparent background" \
   --scale-result 10 \
   --transparent \
@@ -76,7 +79,7 @@ Generated files are named with timestamps, ending with `original.png` for origin
 
 ### Example
 
-```uv run ppa-gen --prompt "A 16 bit pixel art blob with a transparent background"```
+```uv run python scripts/ppa_gen.py --prompt "A 16 bit pixel art blob with a transparent background"```
 
 <table align="center" width="100%">
   <tr>
@@ -92,3 +95,17 @@ Generated files are named with timestamps, ending with `original.png` for origin
 </table>
 
 See the main project README for more examples.
+
+## gen-outputs
+
+Regenerate pixelation outputs for **visual quality validation** when changing the
+algorithm.
+
+```bash
+uv run python scripts/gen_outputs.py
+```
+
+Pixelates every case in `tests/cases.py` into the gitignored
+`tests/outputs/{name}/` for eyeballing algorithm changes. See
+[`CONTRIBUTING.md`](../.github/CONTRIBUTING.md) → Visual validation for the full
+workflow.

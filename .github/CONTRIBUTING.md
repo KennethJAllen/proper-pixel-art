@@ -1,43 +1,43 @@
 # Contributing to Proper Pixel Art
 
-Thank you for contributing! Here's how to get started.
+Thanks for contributing! Here's how to get started.
 
-## Development Setup
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/KennethJAllen/proper-pixel-art.git
-   cd proper-pixel-art
-   ```
-
-2. Install dependencies:
-
-   ```bash
-   uv sync
-   ```
-
-## Before Submitting a Pull Request
-
-Please ensure your code passes all checks:
-
-### 1. Format your code
+## Setup
 
 ```bash
-uv run ruff format
+git clone https://github.com/KennethJAllen/proper-pixel-art.git
+cd proper-pixel-art
+uv sync
 ```
 
-### 2. Check for linting issues
+## Before submitting a PR
 
 ```bash
-uv run ruff check
+uv run ruff format   # format
+uv run ruff check    # lint
+uv run pytest        # test
 ```
 
-### 3. Run tests
+## Visual validation
+
+Pixelation quality is judged **by eye**. The images under `assets/{name}/`
+(inputs and the curated example outputs the README links to) are **frozen**
+references — the workflow below never overwrites them.
+
+When you change the algorithm, regenerate each case's result and intermediate
+visualizations into the gitignored `tests/outputs/{name}/`:
 
 ```bash
-uv run pytest -s
+uv run python scripts/gen_outputs.py
 ```
 
-- If changing the main pixelate algorithm, manualy check the results in `tests/outputs/`
-- If necessary, change the number of colors in `tests/conftest.py`
+Compare `tests/outputs/{name}/` by eye against the committed example in
+`assets/{name}/`. Nothing is committed — `assets/` stays as-is.
+
+### Add a new case
+
+1. Add the input image at `assets/{name}/{name}.png`.
+2. Add an entry in [`tests/cases.py`](../tests/cases.py).
+3. Run `uv run python scripts/gen_outputs.py` and eyeball `tests/outputs/{name}/`.
+4. Commit the input image and the `tests/cases.py` change. (Only add example
+   outputs under `assets/{name}/` if the README references them.)

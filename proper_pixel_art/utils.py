@@ -10,9 +10,9 @@ Mesh = tuple[
 
 def crop_border(image: Image.Image, num_pixels: int = 1) -> Image.Image:
     """
-    Crop the boder of an image by a few pixels.
+    Crop the border of an image by a few pixels.
     Sometimes when requesting an image from GPT-4o with a transparent background,
-    the boarder pixels will not be transparent, so just remove them.
+    the border pixels will not be transparent, so just remove them.
     """
     width, height = image.size
     box = (num_pixels, num_pixels, width - num_pixels, height - num_pixels)
@@ -49,7 +49,7 @@ def overlay_grid_lines(
 
 
 def scale_img(img: Image.Image, scale: int) -> Image.Image:
-    """Scales the image up via nearest neightbor by scale factor."""
+    """Scales the image up via nearest neighbor by scale factor."""
     w, h = img.size
     w_new, h_new = int(w * scale), int(h * scale)
     new_size = w_new, h_new

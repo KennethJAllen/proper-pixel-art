@@ -10,7 +10,9 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from proper_pixel_art import colors, mesh, pixelate, utils
+from proper_pixel_art import colors, mesh, utils
+from proper_pixel_art.config import MeshConfig
+from proper_pixel_art.pixelate import downsample
 from proper_pixel_art.utils import Mesh
 
 
@@ -61,8 +63,10 @@ def aggregate_edge_maps(
         scaled_frame = utils.scale_img(frame, upscale_factor)
         edge_map = mesh.compute_edge_map(
             scaled_frame,
-            canny_thresholds=canny_thresholds,
-            closure_kernel_size=closure_kernel_size,
+            mesh_config=MeshConfig(
+                canny_thresholds=canny_thresholds,
+                closure_kernel_size=closure_kernel_size,
+            ),
         )
 
         if accumulator is None:
@@ -165,7 +169,7 @@ def pixelate_frame(
         else colors.extract_and_scale_alpha(frame_rgba, upscale_factor)
     )
 
-    result = pixelate.downsample(
+    result = downsample(
         scaled_img,
         mesh_lines,
         skip_quantization=skip_quantization,
