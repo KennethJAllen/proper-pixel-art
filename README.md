@@ -1,5 +1,7 @@
 # Proper Pixel Art
 
+by [Kenneth Allen](https://www.kennethallenmath.com/)
+
 [![PyPI version](https://img.shields.io/pypi/v/proper-pixel-art.svg)](https://pypi.org/project/proper-pixel-art/)
 [![Python versions](https://img.shields.io/pypi/pyversions/proper-pixel-art.svg)](https://pypi.org/project/proper-pixel-art/)
 [![CI](https://github.com/KennethJAllen/proper-pixel-art/actions/workflows/ci.yml/badge.svg)](https://github.com/KennethJAllen/proper-pixel-art/actions/workflows/ci.yml)
@@ -100,6 +102,8 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 | `-t`, `--transparent` `<bool>`    | Output with transparent background. (default: off)                                                        |
 | `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
 | `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. Use 0 to determine it automatically. (default: 0)                 |
+| `--config` `<path>`               | YAML config file of pixelation parameters. Flags passed explicitly override values in the file. (default: none) |
+| `--intermediate-dir` `<path>`     | Directory to save images visualizing intermediate algorithm steps. Useful for development. (default: none) |
 
 #### Example
 
