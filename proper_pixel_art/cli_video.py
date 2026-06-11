@@ -68,9 +68,9 @@ def main() -> None:
         output_path=Path(args.out_path),
         num_colors=args.num_colors,
         scale_result=args.scale_result,
-        transparent_background=args.transparent,
+        transparent_background=bool(args.transparent_background),
         pixel_width=args.pixel_width,
-        initial_upscale_factor=args.initial_upscale,
+        initial_upscale_factor=args.initial_upscale_factor,
         output_format=args.output_format,
         num_sample_frames=args.sample_frames,
     )

@@ -1,134 +1,273 @@
 """Video and GIF pixelation support.
 
-Uses aggregated edge maps from multiple frames to detect the pixel grid,
-then applies that grid consistently to all frames.
+Pixelates animations in two passes for temporal consistency and speed:
+
+1. Sample a few evenly-spaced frames and make every global decision once:
+   the pixel mesh (from aggregated edge maps), the color palette, and the
+   background color for transparency.
+2. Stream all frames through a :class:`FramePipeline` that applies those
+   decisions with vectorized per-frame work (no Python per-cell loops, no
+   per-frame resizes).
 """
 
+from collections import Counter
+from math import ceil
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image
 
-from proper_pixel_art import colors, mesh, utils
-from proper_pixel_art.config import MeshConfig
-from proper_pixel_art.pixelate import downsample
+from proper_pixel_art import colors, mesh, utils, video_io
+from proper_pixel_art.config import ColorConfig, MeshConfig, PixelateConfig
+from proper_pixel_art.pixelate import (
+    _downsample_binned,
+    _downsample_quantized,
+    build_cell_map,
+)
 from proper_pixel_art.utils import Mesh
 
-
-def _read_frame_as_pil(cap: cv2.VideoCapture) -> Image.Image | None:
-    """Read a single frame from a VideoCapture and return as RGBA PIL Image."""
-    ret, frame = cap.read()
-    if not ret:
-        return None
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return Image.fromarray(rgb).convert("RGBA")
+# Keep a grid edge if it appears in at least this fraction of sampled frames.
+# In clean pixel-art video every content edge lies on the grid, so a low
+# threshold strengthens the Hough evidence; requiring more than one frame
+# still suppresses single-frame compression noise. A strict majority vote
+# would erase grid segments only visible where moving content happens to
+# create contrast.
+DEFAULT_MIN_VOTE_FRACTION = 0.25
 
 
 def aggregate_edge_maps(
-    video_path: Path,
-    num_samples: int = 8,
+    frames: list[Image.Image],
     upscale_factor: int = 2,
-    canny_thresholds: tuple[int] = (50, 200),
-    closure_kernel_size: int = 8,
-) -> tuple[np.ndarray, int]:
+    mesh_config: MeshConfig | None = None,
+    min_vote_fraction: float = DEFAULT_MIN_VOTE_FRACTION,
+) -> np.ndarray:
     """
-    Sample K evenly-spaced frames, compute per-frame edge maps, and aggregate
-    via majority vote to reinforce grid lines and dilute content edges.
+    Compute per-frame edge maps and keep edges present in at least
+    ``min_vote_fraction`` of the frames.
 
     Args:
-        video_path: Path to input video/GIF
-        num_samples: Number of frames to sample for edge detection
+        frames: Sampled RGBA frames (all the same size)
         upscale_factor: Factor to upscale frames before edge detection
-        canny_thresholds: Thresholds for Canny edge detection
-        closure_kernel_size: Kernel size for morphological closing
+        mesh_config: Tunable mesh-detection parameters (Canny, closing, ...)
+        min_vote_fraction: Minimum fraction of frames an edge pixel must
+            appear in to be kept
 
     Returns:
-        Tuple of (aggregated binary edge map, upscale_factor used)
+        Aggregated binary edge map (uint8, values 0 or 255)
     """
-    cap = cv2.VideoCapture(str(video_path))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    num_samples = min(num_samples, total_frames)
-
-    # Evenly-spaced frame indices
-    sample_indices = np.linspace(0, total_frames - 1, num_samples, dtype=int)
+    if not frames:
+        raise ValueError("Cannot aggregate edge maps without frames")
+    mesh_config = mesh_config or MeshConfig()
 
     accumulator = None
-    for idx in sample_indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
-        frame = _read_frame_as_pil(cap)
-        if frame is None:
-            continue
-
-        scaled_frame = utils.scale_img(frame, upscale_factor)
-        edge_map = mesh.compute_edge_map(
-            scaled_frame,
-            mesh_config=MeshConfig(
-                canny_thresholds=canny_thresholds,
-                closure_kernel_size=closure_kernel_size,
-            ),
-        )
-
+    for frame in frames:
+        scaled_frame = utils.scale_img(frame.convert("RGBA"), upscale_factor)
+        edge_map = mesh.compute_edge_map(scaled_frame, mesh_config=mesh_config)
         if accumulator is None:
-            accumulator = np.zeros_like(edge_map, dtype=np.float32)
-        accumulator += (edge_map > 0).astype(np.float32)
+            accumulator = np.zeros(edge_map.shape, dtype=np.int32)
+        accumulator += edge_map > 0
 
-    cap.release()
-
-    if accumulator is None:
-        raise ValueError(f"Could not read any frames from {video_path}")
-
-    # Majority vote: pixel is edge if present in >50% of sampled frames
-    threshold = num_samples / 2
-    aggregated = ((accumulator > threshold) * 255).astype(np.uint8)
-    return aggregated, upscale_factor
+    min_votes = max(1, ceil(min_vote_fraction * len(frames)))
+    return ((accumulator >= min_votes) * 255).astype(np.uint8)
 
 
 def compute_video_mesh(
-    video_path: Path,
-    num_samples: int = 8,
+    frames: list[Image.Image],
     upscale_factor: int = 2,
     pixel_width: int | None = None,
     output_dir: Path | None = None,
+    mesh_config: MeshConfig | None = None,
+    min_vote_fraction: float = DEFAULT_MIN_VOTE_FRACTION,
 ) -> tuple[Mesh, int]:
     """
-    Compute a master mesh for a video using aggregated edge maps.
+    Compute a master mesh for a video from sampled frames.
     Falls back to upscale_factor=1 if the upscaled mesh is trivial.
 
     Args:
-        video_path: Path to input video/GIF
-        num_samples: Number of frames to sample
+        frames: Sampled RGBA frames (all the same size)
         upscale_factor: Initial upscale factor for edge detection
         pixel_width: If set, skip automatic pixel width detection
         output_dir: If set, save debug images
+        mesh_config: Tunable mesh-detection parameters
+        min_vote_fraction: See :func:`aggregate_edge_maps`
 
     Returns:
         Tuple of (mesh, upscale_factor used)
     """
-    aggregated, factor = aggregate_edge_maps(
-        video_path, num_samples=num_samples, upscale_factor=upscale_factor
+    aggregated = aggregate_edge_maps(
+        frames,
+        upscale_factor=upscale_factor,
+        mesh_config=mesh_config,
+        min_vote_fraction=min_vote_fraction,
     )
 
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        agg_img = Image.fromarray(aggregated, mode="L")
-        agg_img.save(output_dir / "aggregated_edges.png")
+        Image.fromarray(aggregated, mode="L").save(output_dir / "aggregated_edges.png")
 
     mesh_lines = mesh.compute_mesh_from_edges(
         aggregated, pixel_width=pixel_width, output_dir=output_dir
     )
-
     if not mesh._is_trivial_mesh(mesh_lines):
-        return mesh_lines, factor
+        return mesh_lines, upscale_factor
 
     # Fallback: try without upscaling
-    aggregated_fallback, _ = aggregate_edge_maps(
-        video_path, num_samples=num_samples, upscale_factor=1
+    aggregated_fallback = aggregate_edge_maps(
+        frames,
+        upscale_factor=1,
+        mesh_config=mesh_config,
+        min_vote_fraction=min_vote_fraction,
     )
     fallback_mesh = mesh.compute_mesh_from_edges(
         aggregated_fallback, pixel_width=pixel_width, output_dir=output_dir
     )
     return fallback_mesh, 1
+
+
+def build_global_palette(
+    frames: list[Image.Image],
+    num_colors: int,
+    color_config: ColorConfig | None = None,
+) -> tuple[Image.Image, str]:
+    """
+    Build one shared palette from sampled frames so every frame quantizes to
+    the same colors (no palette flicker between frames).
+
+    Returns:
+        Tuple of (P-mode palette image, background hex used by clamp_alpha).
+        The background hex must be reused when clamping each frame so
+        transparent regions map to the same palette entry everywhere.
+    """
+    color_config = color_config or ColorConfig()
+    mosaic_array = np.concatenate(
+        [np.asarray(frame.convert("RGBA")) for frame in frames], axis=0
+    )
+    mosaic = Image.fromarray(mosaic_array, mode="RGBA")
+
+    common = colors._top_opaque_colors(
+        mosaic,
+        color_config.alpha_threshold,
+        limit=color_config.top_colors_limit,
+        thumbnail_size=color_config.thumbnail_size,
+    )
+    background = colors._pick_background(
+        common, candidates=color_config.background_candidates
+    )
+    background_hex = "#{:02x}{:02x}{:02x}".format(*background)
+
+    clamped = colors.clamp_alpha(
+        mosaic,
+        alpha_threshold=color_config.alpha_threshold,
+        mode="RGB",
+        background_hex=background_hex,
+    )
+    palette_img = clamped.quantize(
+        colors=num_colors, method=color_config.quantize, dither=Image.Dither.NONE
+    )
+    return palette_img, background_hex
+
+
+class FramePipeline:
+    """Applies precomputed global decisions (mesh, palette, background) to
+    individual frames with vectorized per-frame work.
+
+    The mesh was detected on frames upscaled by ``upscale_factor``; instead of
+    resizing every frame, the constructor precomputes nearest-neighbor gather
+    indices so per-frame data computed at the original resolution is expanded
+    into the upscaled cell grid — identical cell statistics, no per-frame
+    resize.
+    """
+
+    def __init__(
+        self,
+        mesh_lines: Mesh,
+        upscale_factor: int,
+        frame_size: tuple[int, int],
+        num_colors: int | None,
+        sample_frames: list[Image.Image],
+        transparent_background: bool = False,
+        scale_result: int | None = None,
+        color_config: ColorConfig | None = None,
+    ):
+        width, height = frame_size
+        factor = upscale_factor
+        self.color_config = color_config or ColorConfig()
+        self.transparent_background = transparent_background
+        self.scale_result = scale_result
+        self.skip_quantization = not num_colors  # 0 / None -> skip
+
+        self.cell_map = build_cell_map(mesh_lines, (height * factor, width * factor))
+        self._row_idx = np.arange(height * factor) // factor
+        self._col_idx = np.arange(width * factor) // factor
+
+        if self.skip_quantization:
+            self.palette_img = None
+            self.palette_rgb = None
+            self.background_hex = None
+        else:
+            self.palette_img, self.background_hex = build_global_palette(
+                sample_frames, num_colors, color_config=self.color_config
+            )
+            self.palette_rgb = np.array(
+                self.palette_img.getpalette(), dtype=np.uint8
+            ).reshape(-1, 3)
+
+        self.background_color: colors.RGB | None = None
+        if transparent_background:
+            self.background_color = self._pick_transparency_color(sample_frames)
+
+    def _upscaled(self, array: np.ndarray) -> np.ndarray:
+        """Nearest-neighbor expand an original-resolution array to the
+        upscaled grid the mesh was computed on."""
+        return array[self._row_idx][:, self._col_idx]
+
+    def _downsample_frame(self, frame: Image.Image) -> Image.Image:
+        """Collapse one frame to true-resolution RGBA (no post-processing)."""
+        frame_rgba = frame.convert("RGBA")
+
+        if self.skip_quantization:
+            rgba = self._upscaled(np.asarray(frame_rgba))
+            out = _downsample_binned(rgba, self.cell_map, self.color_config)
+        else:
+            clamped = colors.clamp_alpha(
+                frame_rgba,
+                alpha_threshold=self.color_config.alpha_threshold,
+                mode="RGB",
+                background_hex=self.background_hex,
+            )
+            quantized = clamped.quantize(
+                palette=self.palette_img, dither=Image.Dither.NONE
+            )
+            palette_idx = self._upscaled(np.asarray(quantized))
+            alpha = self._upscaled(np.asarray(frame_rgba)[..., 3])
+            out = _downsample_quantized(
+                palette_idx, alpha, self.cell_map, self.palette_rgb, self.color_config
+            )
+
+        return Image.fromarray(out, mode="RGBA")
+
+    def _pick_transparency_color(self, sample_frames: list[Image.Image]) -> colors.RGB:
+        """Most common boundary color across the downsampled sample frames,
+        decided once so every frame clears the same background color."""
+        boundary_counts: Counter = Counter()
+        for frame in sample_frames:
+            small = np.asarray(self._downsample_frame(frame).convert("RGB"))
+            boundary = np.concatenate(
+                [small[0], small[-1], small[1:-1, 0], small[1:-1, -1]]
+            )
+            boundary_counts.update(map(tuple, boundary))
+        return boundary_counts.most_common(1)[0][0]
+
+    def process(self, frame: Image.Image) -> Image.Image:
+        """Pixelate a single frame using the precomputed global decisions."""
+        result = self._downsample_frame(frame)
+
+        if self.background_color is not None:
+            result = colors.apply_background_transparency(result, self.background_color)
+        if self.scale_result and self.scale_result > 1:
+            result = utils.scale_img(result, int(self.scale_result))
+        return result
 
 
 def pixelate_frame(
@@ -142,82 +281,102 @@ def pixelate_frame(
     """
     Pixelate a single frame using an externally-provided mesh.
 
-    Args:
-        frame: RGBA PIL image
-        mesh_lines: Pre-computed mesh (x_lines, y_lines)
-        upscale_factor: Scale factor the mesh was computed at
-        num_colors: Number of colors for quantization (None to skip)
-        transparent_background: If True, make background transparent
-        scale_result: If set, upscale the result
-
-    Returns:
-        Pixelated RGBA image
+    Convenience wrapper building a one-off :class:`FramePipeline`; when
+    processing many frames, build the pipeline once instead.
     """
     frame_rgba = frame.convert("RGBA")
-    skip_quantization = num_colors is None
-
-    if skip_quantization:
-        processed_img = frame_rgba
-    else:
-        processed_img = colors.palette_img(frame_rgba, num_colors=num_colors)
-
-    scaled_img = utils.scale_img(processed_img, upscale_factor)
-
-    scaled_alpha_array = (
-        None
-        if skip_quantization
-        else colors.extract_and_scale_alpha(frame_rgba, upscale_factor)
-    )
-
-    result = downsample(
-        scaled_img,
+    pipeline = FramePipeline(
         mesh_lines,
-        skip_quantization=skip_quantization,
-        original_alpha=scaled_alpha_array,
+        upscale_factor,
+        frame_rgba.size,
+        num_colors,
+        sample_frames=[frame_rgba],
+        transparent_background=transparent_background,
+        scale_result=scale_result,
+    )
+    return pipeline.process(frame_rgba)
+
+
+def _write_mp4(
+    frames_iter, output_path: Path, fps: float, frame_size: tuple[int, int]
+) -> None:
+    """Write frames to MP4, streaming one frame at a time.
+
+    Tries the H.264 fourcc first and falls back to MPEG-4 Part 2, which is
+    always available in opencv-python builds.
+    """
+    writer = None
+    for codec in ("avc1", "mp4v"):
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        writer = cv2.VideoWriter(str(output_path), fourcc, fps, frame_size)
+        if writer.isOpened():
+            break
+        writer.release()
+        writer = None
+    if writer is None:
+        raise ValueError(f"Could not open a video writer for {output_path}")
+
+    print(f"Writing MP4 with codec {codec}")
+    try:
+        for frame in frames_iter:
+            rgb = np.array(frame.convert("RGB"))
+            writer.write(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    finally:
+        writer.release()
+
+
+def _write_gif(
+    frames: list[Image.Image],
+    output_path: Path,
+    durations_ms: list[int],
+    color_config: ColorConfig | None = None,
+) -> None:
+    """Write frames to GIF with a single shared palette and per-frame durations.
+
+    GIF transparency is binary: pixels with alpha below the configured
+    threshold map to one reserved transparent palette index.
+    """
+    color_config = color_config or ColorConfig()
+    alpha_arrays = [np.asarray(f.convert("RGBA"))[..., 3] for f in frames]
+    has_transparency = any(
+        (alpha < color_config.alpha_threshold).any() for alpha in alpha_arrays
     )
 
-    if transparent_background:
-        result = colors.make_background_transparent(result)
+    # One palette for the whole animation: quantize a mosaic of all frames.
+    # Reserve index 255 for transparency when needed.
+    max_colors = 255 if has_transparency else 256
+    rgb_frames = [f.convert("RGB") for f in frames]
+    mosaic_array = np.concatenate([np.asarray(f) for f in rgb_frames], axis=0)
+    global_palette = Image.fromarray(mosaic_array, mode="RGB").quantize(
+        colors=max_colors, method=color_config.quantize, dither=Image.Dither.NONE
+    )
+    palette_data = global_palette.getpalette()
+    palette_data = palette_data + [0] * (768 - len(palette_data))
 
-    if scale_result is not None:
-        result = utils.scale_img(result, int(scale_result))
-
-    return result
-
-
-def _get_video_fps(video_path: Path) -> float:
-    """Get the FPS of a video file."""
-    cap = cv2.VideoCapture(str(video_path))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    cap.release()
-    return fps if fps > 0 else 24.0
-
-
-def _write_mp4(frames_iter, output_path: Path, fps: float, frame_size: tuple[int, int]):
-    """Write frames to MP4 using cv2.VideoWriter. Streams one frame at a time."""
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(str(output_path), fourcc, fps, frame_size)
-    for frame in frames_iter:
-        rgb = np.array(frame.convert("RGB"))
-        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-        writer.write(bgr)
-    writer.release()
-
-
-def _write_gif(frames: list[Image.Image], output_path: Path, fps: float):
-    """Write frames to GIF using PIL save_all."""
-    duration_ms = int(1000 / fps)
-    # Convert RGBA to P mode for GIF compatibility
     p_frames = []
-    for f in frames:
-        rgb = f.convert("RGB")
-        p_frames.append(rgb.quantize(method=Image.Quantize.MEDIANCUT))
+    for rgb, alpha in zip(rgb_frames, alpha_arrays, strict=True):
+        p_frame = rgb.quantize(palette=global_palette, dither=Image.Dither.NONE)
+        if has_transparency:
+            indices = np.asarray(p_frame).copy()
+            indices[alpha < color_config.alpha_threshold] = 255
+            p_frame = Image.fromarray(indices, mode="P")
+        p_frame.putpalette(palette_data)
+        p_frames.append(p_frame)
+
+    save_kwargs = {}
+    if has_transparency:
+        save_kwargs.update(transparency=255, disposal=2)
     p_frames[0].save(
         output_path,
         save_all=True,
         append_images=p_frames[1:],
-        duration=duration_ms,
+        duration=durations_ms,
         loop=0,
+        optimize=False,
+        # Passing the shared palette makes Pillow write one global color
+        # table instead of a local table on every delta frame.
+        palette=bytes(palette_data),
+        **save_kwargs,
     )
 
 
@@ -228,31 +387,36 @@ def pixelate_video(
     scale_result: int | None = None,
     transparent_background: bool = False,
     pixel_width: int | None = None,
-    initial_upscale_factor: int = 2,
+    initial_upscale_factor: int | None = None,
     output_format: str | None = None,
     num_sample_frames: int = 8,
 ) -> Path:
     """
     Pixelate a video or GIF file.
 
-    Computes a master mesh from aggregated edge maps of sampled frames,
-    then applies that mesh to every frame for consistent output.
+    Samples a few frames to compute a master mesh and a global color palette,
+    then applies both to every frame for a temporally consistent result.
 
     Args:
         input_path: Path to input video/GIF
         output_path: Path for output file (directory or file)
-        num_colors: Number of colors for quantization (None to skip)
+        num_colors: Number of colors for quantization (0/None to skip)
         scale_result: Upscale result by this factor
         transparent_background: Make background transparent
-        pixel_width: Override automatic pixel width detection
+        pixel_width: Override automatic pixel width detection (0/None = auto)
         initial_upscale_factor: Upscale factor for mesh detection
         output_format: Output format ("mp4" or "gif"). Inferred if None.
-        num_sample_frames: Frames to sample for mesh detection
+        num_sample_frames: Frames to sample for mesh/palette detection
 
     Returns:
         Path to the output file
     """
     input_path = Path(input_path)
+    output_path = Path(output_path)
+    initial_upscale_factor = (
+        initial_upscale_factor or PixelateConfig().initial_upscale_factor
+    )
+    pixel_width = pixel_width or None  # 0 / None -> auto-detect
 
     # Resolve output format
     if output_format is None:
@@ -275,81 +439,58 @@ def pixelate_video(
             "Results may not look as expected with --transparent."
         )
 
-    # Compute master mesh
+    info = video_io.probe(input_path)
+
+    # Pass 1: sample frames, then make all global decisions from them
+    sample_frames = video_io.read_sample_frames(input_path, num_sample_frames)
     mesh_lines, upscale_factor = compute_video_mesh(
-        input_path,
-        num_samples=num_sample_frames,
+        sample_frames,
         upscale_factor=initial_upscale_factor,
         pixel_width=pixel_width,
     )
+    pipeline = FramePipeline(
+        mesh_lines,
+        upscale_factor,
+        info.size,
+        num_colors,
+        sample_frames,
+        transparent_background=transparent_background,
+        scale_result=scale_result,
+    )
 
-    fps = _get_video_fps(input_path)
+    # Pass 2: stream every frame through the pipeline
+    total = info.n_frames if info.n_frames > 0 else "?"
+    durations: list[int] = []
 
-    # Process all frames
-    cap = cv2.VideoCapture(str(input_path))
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    if output_format == "gif":
-        # GIF: collect all frames in memory
-        frames = []
-        for i in range(frame_count):
-            frame = _read_frame_as_pil(cap)
-            if frame is None:
-                break
-            result = pixelate_frame(
-                frame,
-                mesh_lines,
-                upscale_factor,
-                num_colors=num_colors,
-                transparent_background=transparent_background,
-                scale_result=scale_result,
-            )
-            frames.append(result)
-            print(f"\rProcessing frame {i + 1}/{frame_count}", end="", flush=True)
-        cap.release()
+    def processed_frames():
+        for index, (frame, duration) in enumerate(video_io.iter_frames(input_path)):
+            durations.append(duration)
+            print(f"\rProcessing frame {index + 1}/{total}", end="", flush=True)
+            yield pipeline.process(frame)
         print()
 
-        if frames:
-            _write_gif(frames, output_path, fps)
+    if output_format == "gif":
+        frames = list(processed_frames())
+        if not frames:
+            raise ValueError(f"Could not read any frames from {input_path}")
+        _write_gif(frames, output_path, durations)
     else:
-        # MP4: stream frames via generator for memory efficiency
-        # First, pixelate one frame to get output dimensions
-        frame = _read_frame_as_pil(cap)
-        if frame is None:
-            cap.release()
-            raise ValueError(f"Could not read first frame from {input_path}")
+        frames_iter = processed_frames()
+        try:
+            first = next(frames_iter)
+        except StopIteration:
+            raise ValueError(f"Could not read any frames from {input_path}") from None
 
-        first_result = pixelate_frame(
-            frame,
-            mesh_lines,
-            upscale_factor,
-            num_colors=num_colors,
-            transparent_background=transparent_background,
-            scale_result=scale_result,
-        )
-        frame_size = (first_result.width, first_result.height)
+        def with_first():
+            yield first
+            yield from frames_iter
 
-        def frame_generator():
-            yield first_result
-            print(f"\rProcessing frame 1/{frame_count}", end="", flush=True)
-            for i in range(1, frame_count):
-                f = _read_frame_as_pil(cap)
-                if f is None:
-                    break
-                result = pixelate_frame(
-                    f,
-                    mesh_lines,
-                    upscale_factor,
-                    num_colors=num_colors,
-                    transparent_background=transparent_background,
-                    scale_result=scale_result,
-                )
-                print(f"\rProcessing frame {i + 1}/{frame_count}", end="", flush=True)
-                yield result
-            print()
-
-        _write_mp4(frame_generator(), output_path, fps, frame_size)
-        cap.release()
+        _write_mp4(with_first(), output_path, info.fps, (first.width, first.height))
+        if durations and max(durations) > 1.1 * min(durations):
+            print(
+                "Warning: input has variable frame durations; "
+                "MP4 output uses a constant frame rate."
+            )
 
     print(f"Saved pixelated video to {output_path}")
     return output_path

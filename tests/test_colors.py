@@ -1,6 +1,7 @@
 """Tests for the colors module."""
 
 import numpy as np
+from PIL import Image
 
 from proper_pixel_art import colors
 
@@ -280,3 +281,32 @@ class TestGetCellColorSkipQuantization:
 
         result = colors.get_cell_color_skip_quantization(cell)
         assert result == (0, 0, 0, 0)
+
+
+class TestBackgroundTransparency:
+    """Tests for apply_background_transparency / make_background_transparent."""
+
+    def test_matching_pixels_become_transparent(self):
+        rgba = np.zeros((4, 4, 4), dtype=np.uint8)
+        rgba[..., :3] = [10, 20, 30]
+        rgba[..., 3] = 255
+        rgba[1, 1, :3] = [200, 0, 0]  # interior non-background pixel
+        rgba[2, 2, :3] = [10, 20, 30]  # interior background-colored pixel
+        image = Image.fromarray(rgba, mode="RGBA")
+
+        result = np.array(colors.apply_background_transparency(image, (10, 20, 30)))
+        assert result[0, 0, 3] == 0
+        assert result[2, 2, 3] == 0, "interior matches are cleared too (no flood fill)"
+        assert result[1, 1, 3] == 255
+        np.testing.assert_array_equal(result[..., :3], rgba[..., :3])
+
+    def test_make_background_transparent_uses_boundary_mode(self):
+        rgba = np.zeros((5, 5, 4), dtype=np.uint8)
+        rgba[..., :3] = [0, 255, 255]  # boundary-dominant background
+        rgba[..., 3] = 255
+        rgba[1:4, 1:4, :3] = [50, 50, 50]
+        image = Image.fromarray(rgba, mode="RGBA")
+
+        result = np.array(colors.make_background_transparent(image))
+        assert (result[0, :, 3] == 0).all()
+        assert (result[1:4, 1:4, 3] == 255).all()

@@ -219,9 +219,9 @@ def _dominant_rgb_by_binning(
     max_count1 = counts1[dominant1]
 
     # Grid 2: offset binning (grid 1 shifted by half a bin)
-    # Add offset before dividing, clamp to avoid overflow
+    # Widen before adding so bright values don't wrap around in uint8, then clamp
     offset = bin_size // 2
-    bins2 = np.minimum(rgb_pixels + offset, 255) // bin_size
+    bins2 = np.minimum(rgb_pixels.astype(np.int64) + offset, 255) // bin_size
     indices2 = bins2[:, 0] * num_bins**2 + bins2[:, 1] * num_bins + bins2[:, 2]
     counts2 = np.bincount(indices2, minlength=num_bins**3)
     dominant2 = np.argmax(counts2)
@@ -327,6 +327,21 @@ def most_common_boundary_color(image: Image.Image) -> RGB:
     return mode_color  # (R, G, B)
 
 
+def apply_background_transparency(
+    image: Image.Image, background_color: RGB
+) -> Image.Image:
+    """
+    Set alpha=0 for ALL pixels matching ``background_color`` (no flood fill).
+
+    Takes the background color explicitly so callers processing many related
+    images (video frames) can decide it once and apply it consistently.
+    """
+    rgba = np.array(image.convert("RGBA"))
+    matches = (rgba[..., :3] == np.array(background_color, dtype=np.uint8)).all(axis=-1)
+    rgba[matches, 3] = 0
+    return Image.fromarray(rgba, mode="RGBA")
+
+
 def make_background_transparent(image: Image.Image) -> Image.Image:
     """
     Make the background fully transparent by:
@@ -336,20 +351,7 @@ def make_background_transparent(image: Image.Image) -> Image.Image:
     Note: This sets transparency for ALL pixels matching the boundary color,
     not just boundary pixels (no flood fill).
     """
-    background_color = most_common_boundary_color(image)
-    image_rgba = image.convert("RGBA")
-    px = list(image_rgba.get_flattened_data())
-
-    out = []
-    for r, g, b, a in px:
-        # If the color is the same as the background color, make it transparent
-        if (r, g, b) == background_color:
-            out.append((r, g, b, 0))
-        else:
-            out.append((r, g, b, a))
-
-    image_rgba.putdata(out)
-    return image_rgba
+    return apply_background_transparency(image, most_common_boundary_color(image))
 
 
 def main():

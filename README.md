@@ -27,7 +27,7 @@ by [Kenneth Allen](https://www.kennethallenmath.com/)
 
 ## Summary
 
-Converts noisy, high-resolution pixel-art-style images (from generative models or low-quality web uploads) into clean, true-resolution assets. Such images often have a non-uniform grid and random artifacts, so standard downsampling fails — the usual alternatives are naive downscaling or redrawing the asset pixel by pixel. This tool automates the recovery instead.
+Converts noisy, high-resolution pixel-art-style images (from generative models or low-quality web uploads) into clean, true-resolution assets. Such images often have a non-uniform grid and random artifacts, so standard downsampling fails — the usual alternatives are naive downscaling or redrawing the asset pixel by pixel. This tool automates the recovery instead. Videos and GIFs are supported too via `ppa-video`.
 
 ## Contents
 
@@ -37,6 +37,7 @@ Converts noisy, high-resolution pixel-art-style images (from generative models o
 - [Usage](#usage)
   - [Web Interface](#web-interface)
   - [CLI](#cli)
+  - [Videos and GIFs](#videos-and-gifs)
   - [Use Without Cloning](#use-without-cloning)
   - [Python API](#python-api)
   - [Configuration file](#configuration-file)
@@ -112,6 +113,31 @@ ppa assets/blob/blob.png -c 16 -s 25
 ```
 
 Note: `--colors` is the parameter most likely to need tuning. See the option table above.
+
+### Videos and GIFs
+
+Pixelate animations (e.g. from video models such as Sora) with `ppa-video`. The pixel mesh and color palette are computed once from sampled frames and applied to every frame, so the animation stays consistent with no flicker.
+
+```bash
+ppa-video <input.mp4|input.gif> -o <output_path> -c <num_colors> [-f mp4|gif]
+```
+
+It accepts the same pixelation options as `ppa` (see the table above), plus:
+
+| Option                          | Description                                                                  |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `-f`, `--format` `<mp4\|gif>`   | Output format. (default: inferred from output, then input, extension)        |
+| `-n`, `--sample-frames` `<int>` | Frames sampled for mesh and palette detection. (default: 8)                  |
+
+GIF input is decoded with full frame compositing (variable-size delta frames, per-frame durations, and transparency are preserved). GIF output uses a single global palette.
+
+From Python:
+
+```python
+from proper_pixel_art.video import pixelate_video
+
+pixelate_video('input.mp4', 'output.gif', num_colors=16)
+```
 
 ### Use Without Cloning
 
