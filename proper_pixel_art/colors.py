@@ -228,10 +228,7 @@ def _dominant_rgb_by_binning(
     max_count2 = counts2[dominant2]
 
     # Use the grid with the larger dominant cluster
-    if max_count1 >= max_count2:
-        mask = indices1 == dominant1
-    else:
-        mask = indices2 == dominant2
+    mask = indices1 == dominant1 if max_count1 >= max_count2 else indices2 == dominant2
 
     dominant_pixels = rgb_pixels[mask]
 

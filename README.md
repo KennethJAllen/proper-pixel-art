@@ -1,18 +1,48 @@
 # Proper Pixel Art
 
+by [Kenneth Allen](https://www.kennethallenmath.com/)
+
+[![PyPI version](https://img.shields.io/pypi/v/proper-pixel-art.svg)](https://pypi.org/project/proper-pixel-art/)
+[![Python versions](https://img.shields.io/pypi/pyversions/proper-pixel-art.svg)](https://pypi.org/project/proper-pixel-art/)
+[![CI](https://github.com/KennethJAllen/proper-pixel-art/actions/workflows/ci.yml/badge.svg)](https://github.com/KennethJAllen/proper-pixel-art/actions/workflows/ci.yml)
+[![Downloads](https://static.pepy.tech/badge/proper-pixel-art)](https://pepy.tech/project/proper-pixel-art)
+[![License: MIT](https://img.shields.io/github/license/KennethJAllen/proper-pixel-art.svg)](LICENSE)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/kennethallen/proper-pixel-art)
+
+<table align="center" width="100%">
+  <tr>
+    <td width="47%">
+      <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/mountain/mountain.png" style="width:100%;" />
+      <br><small>Noisy, high resolution</small>
+    </td>
+    <td width="6%" align="center" valign="middle">
+      <h1>→</h1>
+    </td>
+    <td width="47%">
+      <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/mountain/result.png" style="width:100%;" />
+      <br><small>Clean, true-resolution pixel art</small>
+    </td>
+  </tr>
+</table>
+
 ## Summary
 
-Converts noisy, high resolution pixel-art style images produced by generative models or sourced from low-quality web uploads to clean, true-resolution pixel-art assets.
+Converts noisy, high-resolution pixel-art-style images (from generative models or low-quality web uploads) into clean, true-resolution assets. Such images often have a non-uniform grid and random artifacts, so standard downsampling fails — the usual alternatives are naive downscaling or redrawing the asset pixel by pixel. This tool automates the recovery instead.
 
-### Challenges
+## Contents
 
-Generative pixel-art style images are noisy and high resolution, often with a non-uniform grid and random artifacts. Standard downsampling techniques do not work. The current approach is to either use naive downscaling techniques or manually re-create the asset pixel by pixel.
-
-This tool addressed both of these issues by automating the process of recovering true-resolution pixel-art assets.
-
-## Hugging Face Spaces
-
-Try the tool on [Hugging Face Spaces](https://huggingface.co/spaces/kennethallen/proper-pixel-art).
+- [Installation](#installation)
+  - [Install From PyPI](#install-from-pypi)
+  - [Install from source](#install-from-source)
+- [Usage](#usage)
+  - [Web Interface](#web-interface)
+  - [CLI](#cli)
+  - [Use Without Cloning](#use-without-cloning)
+  - [Python API](#python-api)
+  - [Configuration file](#configuration-file)
+- [Examples](#examples)
+- [Real Images To Pixel Art](#real-images-to-pixel-art)
+- [Algorithm](#algorithm)
 
 ## Installation
 
@@ -40,13 +70,15 @@ uv sync --extra web
 
 ## Usage
 
-First, obtain a source pixel-art-style image (e.g. a pixel-art-style image from a generative model such as OpenAI's `gpt-image-2` or a web upload of pixel-art).
+First, obtain a source pixel-art-style image (e.g. from a generative model such as OpenAI's `gpt-image-2`, or a web upload of pixel art).
 
 > The examples below assume you installed via `pip install` or `uv add` (commands are on your `PATH`). If you installed from source with `uv sync`, prefix each command with `uv run` (e.g. `uv run ppa ...`).
 
 ### Web Interface
 
-Opens a browser interface where you can upload an image and adjust settings interactively.
+Try it live in your browser, no install required, on [Hugging Face Spaces](https://huggingface.co/spaces/kennethallen/proper-pixel-art).
+
+To run the same interface locally:
 
 ```bash
 ppa-web
@@ -70,6 +102,8 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 | `-t`, `--transparent` `<bool>`    | Output with transparent background. (default: off)                                                        |
 | `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
 | `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. Use 0 to determine it automatically. (default: 0)                 |
+| `--config` `<path>`               | YAML config file of pixelation parameters. Flags passed explicitly override values in the file. (default: none) |
+| `--intermediate-dir` `<path>`     | Directory to save images visualizing intermediate algorithm steps. Useful for development. (default: none) |
 
 #### Example
 
@@ -77,11 +111,9 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 ppa assets/blob/blob.png -c 16 -s 25
 ```
 
-Note: `num_colors` is the parameter most likely to need tuning. Try values like 8, 16, 32, or 64 if the result doesn't look right, or use 0 to skip quantization.
+Note: `--colors` is the parameter most likely to need tuning. See the option table above.
 
 ### Use Without Cloning
-
-UV offers options for users who want to run the tool without cloning
 
 #### Web Interface (without cloning)
 
@@ -110,35 +142,16 @@ result.save('path/to/output.png')
 
 #### Parameters
 
-- `image` : `PIL.Image.Image`
+These mirror the CLI options above.
 
-  - A PIL image to pixelate.
-
-- `num_colors` : `int`
-
-  - The number of colors in result (1-256). Use 0 to skip quantization and preserve all colors.
-  - May need to try a few values if the colors don't look right.
-  - 8, 16, 32, or 64 typically works for quantized output.
-
-- `initial_upscale_factor` : `int`
-
-  - Upscale initial image. This may help detect lines.
-
-- `scale_result` : `int`
-
-  - Upscale result after algorithm is complete. 1 = no scaling.
-
-- `transparent_background` : `bool`
-  - If True, flood fills each corner of the result with transparent alpha.
-
-- `intermediate_dir` : `Path | None`
-  - Directory to save images visualizing intermediate steps of algorithm. Useful for development.
-
-- `pixel_width` : `int`
-  - Width of the pixels in the input image. Use 0 to determine it automatically. It may be helpful to increase this parameter if not enough pixel edges are being detected.
-
-- `config` : `PixelateConfig | None`
-  - A bundle of *every* tunable parameter, including the deeper mesh-detection (Canny, Hough, line clustering) and color (alpha/transparency thresholds, quantization method, color binning) settings that are not exposed as direct arguments. Load one from a YAML file with `PixelateConfig.from_yaml(path)`. Any explicit argument above overrides the matching value in `config`.
+- `image` : `PIL.Image.Image` — the image to pixelate.
+- `num_colors` : `int` — colors in result (1-256), or 0 to skip quantization. Most likely to need tuning.
+- `initial_upscale_factor` : `int` — upscale the input first; may help detect lines.
+- `scale_result` : `int` — upscale the result; 1 = no scaling.
+- `transparent_background` : `bool` — if True, flood-fill each corner with transparent alpha.
+- `intermediate_dir` : `Path | None` — save visualizations of intermediate steps (for development).
+- `pixel_width` : `int` — pixel width in the input, or 0 to detect automatically.
+- `config` : `PixelateConfig | None` — a bundle of *every* tunable parameter, including the deeper mesh-detection (Canny, Hough, line clustering) and color (alpha/transparency thresholds, quantization method, color binning) settings not exposed as direct arguments. Load one with `PixelateConfig.from_yaml(path)`. Explicit arguments override matching values in `config`.
 
 #### Returns
 
@@ -283,7 +296,7 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
 
 ## Algorithm
 
-- The main algorithm solves these challenges. Here is a high level overview. We will apply it step by step on this example image of blob pixel art that was generated from GPT-4o.
+Here's a step-by-step overview, applied to this GPT-4o-generated blob:
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/blob.png" width="80%" alt="blob"/>
 
