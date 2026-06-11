@@ -77,7 +77,7 @@ def _transparent_cells(
     return opaque_counts <= cell_map.cell_sizes * (1 - majority_fraction)
 
 
-def _downsample_quantized(
+def downsample_quantized(
     palette_idx: np.ndarray,
     alpha: np.ndarray | None,
     cell_map: CellMap,
@@ -117,7 +117,7 @@ def _downsample_quantized(
     return out.reshape(*cell_map.out_shape, 4)
 
 
-def _downsample_binned(
+def downsample_binned(
     rgba: np.ndarray,
     cell_map: CellMap,
     color_config: ColorConfig,
@@ -144,7 +144,7 @@ def _downsample_binned(
     out[~transparent, 3] = 255
 
     # Binning only applies to cells with > 3 opaque pixels; small cells fall
-    # back to colors._dominant_rgb_by_binning below to keep its <= 3 edge cases.
+    # back to colors.dominant_rgb_by_binning below to keep its <= 3 edge cases.
     small = ~transparent & (opaque_counts <= 3)
     active = opaque_mask & (~transparent & ~small)[cid]
     cid_a = cid[active]
@@ -205,7 +205,7 @@ def _downsample_binned(
         boundaries = np.searchsorted(cid_s, small_cells)
         sizes = opaque_counts[small_cells]
         for cell, start, size in zip(small_cells, boundaries, sizes, strict=True):
-            out[cell, :3] = colors._dominant_rgb_by_binning(
+            out[cell, :3] = colors.dominant_rgb_by_binning(
                 rgb_s[start : start + size], bin_size=bin_size
             )
 
@@ -245,7 +245,7 @@ def downsample(
 
     if skip_quantization:
         rgba = np.asarray(image.convert("RGBA"))
-        out = _downsample_binned(rgba, cell_map, color_config)
+        out = downsample_binned(rgba, cell_map, color_config)
     else:
         if image.mode == "P":
             palette_rgb = np.array(image.getpalette(), dtype=np.uint8).reshape(-1, 3)
@@ -256,7 +256,7 @@ def downsample(
                 arr.reshape(-1, 3), axis=0, return_inverse=True
             )
             palette_idx = inverse.reshape(arr.shape[:2])
-        out = _downsample_quantized(
+        out = downsample_quantized(
             palette_idx, original_alpha, cell_map, palette_rgb, color_config
         )
 

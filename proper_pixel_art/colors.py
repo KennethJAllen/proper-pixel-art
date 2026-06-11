@@ -32,7 +32,7 @@ def _rgb_dist(a: RGB, b: RGB) -> int:
     return dr**2 + dg**2 + db**2
 
 
-def _top_opaque_colors(
+def top_opaque_colors(
     img: Image.Image,
     alpha_threshold: int,
     limit: int = _DEFAULTS.top_colors_limit,
@@ -64,7 +64,7 @@ DEFAULT_BACKGROUND_CANDIDATES: list[RGB] = [
 ]
 
 
-def _pick_background(colors: list[RGB], candidates: list[RGB] | None = None) -> RGB:
+def pick_background(colors: list[RGB], candidates: list[RGB] | None = None) -> RGB:
     """
     Pick the candidate farthest from the common colors.
     Used for choosing the color of pixels with alpha to avoid clashing
@@ -100,10 +100,10 @@ def clamp_alpha(
         raise ValueError("mode must be 'RGB' or 'L'")
 
     if background_hex is None:
-        common = _top_opaque_colors(
+        common = top_opaque_colors(
             image, alpha_threshold, limit=limit, thumbnail_size=thumbnail_size
         )
-        bg_rgb = _pick_background(common, candidates=background_candidates)
+        bg_rgb = pick_background(common, candidates=background_candidates)
     else:
         bg_rgb = ImageColor.getrgb(background_hex)
 
@@ -179,7 +179,7 @@ def get_cell_color_with_alpha(
     return cell_color
 
 
-def _dominant_rgb_by_binning(
+def dominant_rgb_by_binning(
     rgb_pixels: np.ndarray, bin_size: int = _DEFAULTS.bin_size
 ) -> RGB:
     """
@@ -272,7 +272,7 @@ def get_cell_color_skip_quantization(
 
     # Get RGB of opaque pixels and find dominant color
     rgb_pixels = opaque_pixels[:, :3]
-    r, g, b = _dominant_rgb_by_binning(rgb_pixels, bin_size=bin_size)
+    r, g, b = dominant_rgb_by_binning(rgb_pixels, bin_size=bin_size)
     return (int(r), int(g), int(b), 255)
 
 

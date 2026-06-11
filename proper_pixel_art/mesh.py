@@ -287,7 +287,7 @@ def compute_mesh_with_scaling(
         pixel_width=pixel_width,
         mesh_config=mesh_config,
     )
-    if not _is_trivial_mesh(mesh_lines):
+    if not is_trivial_mesh(mesh_lines):
         return mesh_lines, upscale_factor
 
     # If no mesh is found, then use the original image instead.
@@ -297,7 +297,7 @@ def compute_mesh_with_scaling(
     return fallback_mesh_lines, 1
 
 
-def _is_trivial_mesh(img_mesh: Mesh) -> bool:
+def is_trivial_mesh(img_mesh: Mesh) -> bool:
     """
     Returns True if no lines have been identified when computing the mesh.
     That is, the points in mesh_x and mesh_y consist of the left, right, and top, bottom

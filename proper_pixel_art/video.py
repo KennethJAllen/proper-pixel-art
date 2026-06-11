@@ -21,9 +21,9 @@ from PIL import Image
 from proper_pixel_art import colors, mesh, utils, video_io
 from proper_pixel_art.config import ColorConfig, MeshConfig, PixelateConfig
 from proper_pixel_art.pixelate import (
-    _downsample_binned,
-    _downsample_quantized,
     build_cell_map,
+    downsample_binned,
+    downsample_quantized,
 )
 from proper_pixel_art.utils import Mesh
 
@@ -34,6 +34,9 @@ from proper_pixel_art.utils import Mesh
 # would erase grid segments only visible where moving content happens to
 # create contrast.
 DEFAULT_MIN_VOTE_FRACTION = 0.25
+
+# Pixel budget for the all-frames mosaic used to build the shared GIF palette.
+_MAX_PALETTE_MOSAIC_PIXELS = 2_000_000
 
 
 def aggregate_edge_maps(
@@ -109,7 +112,7 @@ def compute_video_mesh(
     mesh_lines = mesh.compute_mesh_from_edges(
         aggregated, pixel_width=pixel_width, output_dir=output_dir
     )
-    if not mesh._is_trivial_mesh(mesh_lines):
+    if not mesh.is_trivial_mesh(mesh_lines):
         return mesh_lines, upscale_factor
 
     # Fallback: try without upscaling
@@ -145,13 +148,13 @@ def build_global_palette(
     )
     mosaic = Image.fromarray(mosaic_array, mode="RGBA")
 
-    common = colors._top_opaque_colors(
+    common = colors.top_opaque_colors(
         mosaic,
         color_config.alpha_threshold,
         limit=color_config.top_colors_limit,
         thumbnail_size=color_config.thumbnail_size,
     )
-    background = colors._pick_background(
+    background = colors.pick_background(
         common, candidates=color_config.background_candidates
     )
     background_hex = "#{:02x}{:02x}{:02x}".format(*background)
@@ -228,7 +231,7 @@ class FramePipeline:
 
         if self.skip_quantization:
             rgba = self._upscaled(np.asarray(frame_rgba))
-            out = _downsample_binned(rgba, self.cell_map, self.color_config)
+            out = downsample_binned(rgba, self.cell_map, self.color_config)
         else:
             clamped = colors.clamp_alpha(
                 frame_rgba,
@@ -241,7 +244,7 @@ class FramePipeline:
             )
             palette_idx = self._upscaled(np.asarray(quantized))
             alpha = self._upscaled(np.asarray(frame_rgba)[..., 3])
-            out = _downsample_quantized(
+            out = downsample_quantized(
                 palette_idx, alpha, self.cell_map, self.palette_rgb, self.color_config
             )
 
@@ -306,17 +309,19 @@ def _write_mp4(
     always available in opencv-python builds.
     """
     writer = None
+    chosen_codec = None
     for codec in ("avc1", "mp4v"):
         fourcc = cv2.VideoWriter_fourcc(*codec)
         writer = cv2.VideoWriter(str(output_path), fourcc, fps, frame_size)
         if writer.isOpened():
+            chosen_codec = codec
             break
         writer.release()
         writer = None
     if writer is None:
         raise ValueError(f"Could not open a video writer for {output_path}")
 
-    print(f"Writing MP4 with codec {codec}")
+    print(f"Writing MP4 with codec {chosen_codec}")
     try:
         for frame in frames_iter:
             rgb = np.array(frame.convert("RGB"))
@@ -346,7 +351,14 @@ def _write_gif(
     # Reserve index 255 for transparency when needed.
     max_colors = 255 if has_transparency else 256
     rgb_frames = [f.convert("RGB") for f in frames]
-    mosaic_array = np.concatenate([np.asarray(f) for f in rgb_frames], axis=0)
+    # Frames are nearest-neighbor upscaled true-resolution images, so every
+    # color is duplicated scale_result**2 times; stride-subsampling large
+    # mosaics bounds memory without meaningfully changing the palette.
+    total_pixels = sum(f.width * f.height for f in rgb_frames)
+    stride = max(1, round((total_pixels / _MAX_PALETTE_MOSAIC_PIXELS) ** 0.5))
+    mosaic_array = np.concatenate(
+        [np.asarray(f)[::stride, ::stride] for f in rgb_frames], axis=0
+    )
     global_palette = Image.fromarray(mosaic_array, mode="RGB").quantize(
         colors=max_colors, method=color_config.quantize, dither=Image.Dither.NONE
     )
@@ -423,10 +435,16 @@ def pixelate_video(
         if output_path.suffix:
             output_format = output_path.suffix.lstrip(".")
         else:
-            output_format = input_path.suffix.lstrip(".")
+            # Inferring from the input is best-effort: any non-GIF input
+            # (webm, mov, ...) simply produces an mp4.
+            inferred = input_path.suffix.lstrip(".").lower()
+            output_format = inferred if inferred in ("mp4", "gif") else "mp4"
     output_format = output_format.lower()
     if output_format not in ("mp4", "gif"):
-        output_format = "mp4"
+        raise ValueError(
+            f"Unsupported output format {output_format!r}: expected 'mp4' or "
+            "'gif'. Use a .mp4/.gif output path or pass output_format."
+        )
 
     # Resolve output path
     if not output_path.suffix:
@@ -442,7 +460,7 @@ def pixelate_video(
     info = video_io.probe(input_path)
 
     # Pass 1: sample frames, then make all global decisions from them
-    sample_frames = video_io.read_sample_frames(input_path, num_sample_frames)
+    sample_frames = video_io.read_sample_frames(input_path, num_sample_frames, info)
     mesh_lines, upscale_factor = compute_video_mesh(
         sample_frames,
         upscale_factor=initial_upscale_factor,

@@ -1,6 +1,7 @@
 """Command line interface for video/GIF pixelation."""
 
 import argparse
+from importlib.metadata import version
 from pathlib import Path
 
 from proper_pixel_art import video
@@ -10,6 +11,12 @@ from proper_pixel_art.cli import add_pixelation_args
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Pixelate a video or GIF into true-resolution pixel art."
+    )
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {version('proper-pixel-art')}",
     )
     parser.add_argument(
         "input_path", type=Path, nargs="?", help="Path to the source video or GIF."

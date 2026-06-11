@@ -118,7 +118,9 @@ def iter_frames(path: Path) -> Iterator[tuple[Image.Image, int]]:
         yield from _iter_cv2_frames(path)
 
 
-def read_sample_frames(path: Path, num_samples: int) -> list[Image.Image]:
+def read_sample_frames(
+    path: Path, num_samples: int, info: VideoInfo | None = None
+) -> list[Image.Image]:
     """
     Collect up to ``num_samples`` evenly-spaced RGBA frames in one sequential pass.
 
@@ -126,8 +128,15 @@ def read_sample_frames(path: Path, num_samples: int) -> list[Image.Image]:
     over-estimate, fewer frames are returned (whatever was actually decodable).
     If the count is unknown or an under-estimate, all frames are read and the
     sample is drawn evenly from the decoded frames.
+
+    Args:
+        path: Path to the video/GIF file
+        num_samples: Number of frames to sample
+        info: Already-probed metadata for ``path``; pass it to avoid a second
+            probe pass (probing a GIF walks every frame for durations).
     """
-    info = probe(path)
+    if info is None:
+        info = probe(path)
     if num_samples < 1:
         raise ValueError(f"num_samples must be >= 1, got {num_samples}")
 

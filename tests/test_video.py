@@ -9,6 +9,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 from PIL import Image
 
 from proper_pixel_art import video, video_io
@@ -191,6 +192,28 @@ class TestMp4Output:
         output_path = video.pixelate_video(
             input_path, tmp_path / "out", num_colors=8, output_format="mp4"
         )
+        assert output_path.suffix == ".mp4"
+        assert output_path.exists()
+
+
+class TestOutputFormat:
+    def test_unsupported_output_extension_raises(self, tmp_path: Path):
+        arrays = _make_noisy_arrays(2)
+        input_path = tmp_path / "anim.gif"
+        _save_gif(arrays, input_path, [50, 50])
+
+        with pytest.raises(ValueError, match="Unsupported output format"):
+            video.pixelate_video(input_path, tmp_path / "out.webm", num_colors=8)
+
+    def test_unsupported_input_extension_falls_back_to_mp4(self, tmp_path: Path):
+        """Format inferred from a non-mp4/gif *input* stays best-effort: the
+        output is written as mp4 rather than erroring."""
+        arrays = _make_noisy_arrays(2)
+        input_path = tmp_path / "anim.gif"
+        _save_gif(arrays, input_path, [50, 50])
+        webm_path = input_path.rename(tmp_path / "anim.webm")
+
+        output_path = video.pixelate_video(webm_path, tmp_path, num_colors=8)
         assert output_path.suffix == ".mp4"
         assert output_path.exists()
 

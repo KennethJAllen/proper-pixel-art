@@ -60,7 +60,7 @@ class ColorConfig:
     background_candidates: list[RGB] | None = None  # override background palette
 
     def __post_init__(self) -> None:
-        # bin_size is a divisor in _dominant_rgb_by_binning (num_bins =
+        # bin_size is a divisor in dominant_rgb_by_binning (num_bins =
         # 255 // bin_size + 1); 0 would raise an opaque ZeroDivisionError later.
         if self.bin_size < 1:
             raise ValueError(f"bin_size must be >= 1, got {self.bin_size}.")
