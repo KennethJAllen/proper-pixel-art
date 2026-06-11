@@ -1,6 +1,6 @@
 [project]
 name = "proper-pixel-art"
-version = "1.5.1"
+version = "1.5.2"
 description = "Converts pixel-art-style images such as those from generative models or low-quality sprite web uploads to true resolution usable assets."
 authors = [{name = "Kenneth Allen"}]
 readme = "README.md"
@@ -67,7 +67,8 @@ exclude = ["assets"]
 exclude = ["assets"]
 
 [tool.ruff]
-lint.select = ["I"]
+lint.select = ["E", "F", "UP", "B", "SIM", "I"]
+lint.ignore = ["E501"]  # line length is handled by ruff format
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

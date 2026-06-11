@@ -83,7 +83,7 @@ def test_unknown_key_raises():
 
 def test_unknown_quantize_method_raises():
     with pytest.raises(ValueError, match="Unknown quantize_method"):
-        ColorConfig(quantize_method="NOPE").quantize
+        _ = ColorConfig(quantize_method="NOPE").quantize
 
 
 def test_bin_size_zero_raises():
