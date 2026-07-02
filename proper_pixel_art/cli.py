@@ -150,9 +150,6 @@ def main() -> None:
     args = parse_args()
     input_path = Path(args.input_path).expanduser()
 
-    out_path = resolve_output_path(Path(args.out_path), input_path)
-    out_path.parent.mkdir(exist_ok=True, parents=True)
-
     config = PixelateConfig.from_yaml(args.config) if args.config else None
 
     # Each arg's dest matches a pixelate kwarg; None values fall back to config.
@@ -172,6 +169,13 @@ def main() -> None:
     pixelated = pixelate(
         img, config=config, intermediate_dir=args.intermediate_dir, **overrides
     )
+
+    width, height = pixelated.size
+
+    out_path = resolve_output_path(
+        Path(args.out_path), input_path, f"_{width}x{height}"
+    )
+    out_path.parent.mkdir(exist_ok=True, parents=True)
 
     pixelated.save(out_path)
 

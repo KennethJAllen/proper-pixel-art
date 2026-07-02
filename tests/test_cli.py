@@ -36,12 +36,12 @@ def test_main_writes_output_file(
 def test_main_output_to_directory(
     monkeypatch: pytest.MonkeyPatch, assets: Path, tmp_path: Path
 ) -> None:
-    """A directory output path gets the default '<stem>_pixelated.png' name."""
+    """A directory output path gets the default '<stem>_<W>x<H>.png' name."""
     input_path = assets / "anchor" / "anchor.png"
 
     run_cli(monkeypatch, str(input_path), "-o", str(tmp_path), "-c", "8")
 
-    assert (tmp_path / "anchor_pixelated.png").is_file()
+    assert (tmp_path / "anchor_32x32.png").is_file()
 
 
 def test_main_requires_input_path(monkeypatch: pytest.MonkeyPatch) -> None:
