@@ -49,7 +49,7 @@ uv run python scripts/ppa_gen.py \
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--prompt` | str | (required) | Text description for image generation |
-| `--size` | str | 1024x1024 | Image size: '1024x1024', '1024x1536', or '1536x1024' |
+| `--size` | str | 1024x1024 | Image size: '1024x1024', '1024x1536', '1536x1024', or 'auto' |
 | `--n` | int | 1 | Number of images to generate (1-10) |
 
 #### Pixelation Options

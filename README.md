@@ -100,7 +100,7 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 | `-o`, `--output` `<path>`         | Output directory or file path for result. (default: '.')                                                  |
 | `-c`, `--colors` `<int>`          | Number of colors for output (1-256). Use 0 to skip quantization and preserve all colors. May need to try a few different values. (default 0) |
 | `-s`, `--scale-result` `<int>`    | Width/height of each "pixel" in the output. 1 = no scaling. (default: 1)                                  |
-| `-t`, `--transparent` `<bool>`    | Output with transparent background. (default: off)                                                        |
+| `-t`, `--transparent`             | Output with transparent background. (default: off)                                                        |
 | `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
 | `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. Use 0 to determine it automatically. (default: 0)                 |
 | `--config` `<path>`               | YAML config file of pixelation parameters. Flags passed explicitly override values in the file. (default: none) |
@@ -182,7 +182,7 @@ These mirror the CLI options above.
 - `num_colors` : `int` — colors in result (1-256), or 0 to skip quantization. Most likely to need tuning.
 - `initial_upscale_factor` : `int` — upscale the input first; may help detect lines.
 - `scale_result` : `int` — upscale the result; 1 = no scaling.
-- `transparent_background` : `bool` — if True, flood-fill each corner with transparent alpha.
+- `transparent_background` : `bool` — if True, make all pixels matching the most common boundary color transparent.
 - `intermediate_dir` : `Path | None` — save visualizations of intermediate steps (for development).
 - `pixel_width` : `int` — pixel width in the input, or 0 to detect automatically.
 - `config` : `PixelateConfig | None` — a bundle of *every* tunable parameter, including the deeper mesh-detection (Canny, Hough, line clustering) and color (alpha/transparency thresholds, quantization method, color binning) settings not exposed as direct arguments. Load one with `PixelateConfig.from_yaml(path)`. Explicit arguments override matching values in `config`.
@@ -338,7 +338,7 @@ Here's a step-by-step overview, applied to this GPT-4o-generated blob:
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/zoom.png" width="80%" alt="The blob is noisy."/>
 
-1) Trim the edges of the image and zero out pixels with more than 50% alpha.
+1) Trim the edges of the image and replace mostly-transparent pixels (alpha below 50%) with a background color.
     - This is to work around some issues with models such as GPT-4o not giving a perfectly transparent background.
 
 2) Upscale by a factor of 2 using nearest neighbor.
