@@ -209,8 +209,10 @@ def resolve_output_path(
     out_path: Path, input_path: Path, suffix: str = "_pixelated"
 ) -> Path:
     """
-    If outpath is a directory, make it a file path
-    with filename e.g. (input stem)_pixelated.png
+    If out_path is a directory, make it a file path with filename
+    ``(input stem){suffix}.png`` (main passes the output size as the suffix,
+    e.g. ``sprite_128x128.png``). An out_path that already names a file is
+    returned unchanged.
     """
     return utils.build_output_path(out_path, input_path, suffix, ext="png")
 
