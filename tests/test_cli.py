@@ -45,6 +45,27 @@ def test_main_output_to_directory(
     assert (tmp_path / "anchor_32x32.png").is_file()
 
 
+def test_main_intermediate_dir_uses_input_subdir(
+    monkeypatch: pytest.MonkeyPatch, assets: Path, tmp_path: Path
+) -> None:
+    """Image debug images land in a per-input subdirectory named after the stem."""
+    input_path = assets / "anchor" / "anchor.png"
+    intermediate_dir = tmp_path / "intermediate"
+
+    run_cli(
+        monkeypatch,
+        str(input_path),
+        "-o",
+        str(tmp_path / "out.png"),
+        "-c",
+        "8",
+        "--intermediate-dir",
+        str(intermediate_dir),
+    )
+
+    assert (intermediate_dir / "anchor" / "mesh.png").is_file()
+
+
 def test_main_requires_input_path(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit):
         run_cli(monkeypatch)
@@ -164,4 +185,5 @@ def test_video_main_with_config_yaml(
 
     with Image.open(out_path) as result:
         assert result.size == (LOGICAL_SIZE * 2, LOGICAL_SIZE * 2)
-    assert (intermediate_dir / "mesh.png").is_file()
+    # Debug images land in a per-input subdirectory named after the input stem.
+    assert (intermediate_dir / gif_path.stem / "mesh.png").is_file()

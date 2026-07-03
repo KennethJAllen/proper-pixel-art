@@ -368,6 +368,9 @@ class TestConfigSupport:
 
 
 class TestIntermediateDir:
+    # pixelate_video writes fixed-named debug images straight into the dir it is
+    # given; the per-input subdirectory (foo/<stem>/) is a CLI-layer convention
+    # (see tests/test_cli.py), not a pixelate_video behavior.
     def test_writes_debug_visualizations(self, tmp_path: Path):
         """intermediate_dir gets the mesh overlays and palette preview, matching
         the still-image path — not just a redundant edge dump."""
