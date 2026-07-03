@@ -118,6 +118,8 @@ Note: `--colors` is the parameter most likely to need tuning. See the option tab
 
 Pixelate animations (e.g. from video models such as Sora) with `ppa-video`. The pixel mesh and color palette are computed once from sampled frames and applied to every frame, so the animation stays consistent with no flicker.
 
+`ppa` also recognizes video and GIF inputs by extension and runs them through the same pipeline, so `ppa input.gif -o out.gif` works too; `ppa-video` additionally exposes the options below.
+
 ```bash
 ppa-video <input.mp4|input.gif> -o <output_path> -c <num_colors> [-f mp4|gif]
 ```

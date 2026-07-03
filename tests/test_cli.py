@@ -60,6 +60,19 @@ def test_resolve_output_path_file_passthrough() -> None:
     assert resolved == Path("out/result.png")
 
 
+def test_main_dispatches_video_input(
+    monkeypatch: pytest.MonkeyPatch, gif_path: Path, tmp_path: Path
+) -> None:
+    """`ppa` routes video/GIF inputs through the video pipeline by extension."""
+    out_path = tmp_path / "result.gif"
+
+    run_cli(monkeypatch, str(gif_path), "-o", str(out_path), "-c", "8")
+
+    with Image.open(out_path) as result:
+        assert result.n_frames == 3
+        assert result.size == (LOGICAL_SIZE, LOGICAL_SIZE)
+
+
 def run_video_cli(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
     monkeypatch.setattr(sys, "argv", ["ppa-video", *argv])
     cli_video.main()

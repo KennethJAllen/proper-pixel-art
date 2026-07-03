@@ -9,6 +9,11 @@ from PIL import Image
 from proper_pixel_art import pixelate
 from proper_pixel_art.config import PixelateConfig
 
+# Inputs with these suffixes are dispatched to the video pipeline; everything
+# else is treated as a still image. GIFs always take the video path, which
+# preserves animation (and handles single-frame GIFs fine).
+VIDEO_SUFFIXES = frozenset({".mp4", ".gif", ".webm", ".mov", ".avi", ".mkv", ".m4v"})
+
 
 def add_pixelation_args(
     parser: argparse.ArgumentParser,
@@ -127,7 +132,11 @@ def resolve_input_path(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate a true-resolution pixel-art image from a source image."
+        description=(
+            "Generate true-resolution pixel art from a source image, video, or GIF. "
+            "Video and GIF inputs are dispatched to the video pipeline "
+            "(see ppa-video for its extra options)."
+        )
     )
     parser.add_argument(
         "-V",
@@ -136,7 +145,10 @@ def parse_args() -> argparse.Namespace:
         version=f"%(prog)s {version('proper-pixel-art')}",
     )
     parser.add_argument(
-        "input_path", type=Path, nargs="?", help="Path to the source input file."
+        "input_path",
+        type=Path,
+        nargs="?",
+        help="Path to the source image, video, or GIF.",
     )
     parser.add_argument(
         "-i",
@@ -189,6 +201,19 @@ def main() -> None:
 
     if args.intermediate_dir is not None:
         args.intermediate_dir.mkdir(exist_ok=True, parents=True)
+
+    if input_path.suffix.lower() in VIDEO_SUFFIXES:
+        # Deferred import so image runs don't pay the cv2 import cost.
+        from proper_pixel_art import video
+
+        video.pixelate_video(
+            input_path=input_path,
+            output_path=Path(args.out_path),
+            intermediate_dir=args.intermediate_dir,
+            config=config,
+            **overrides,
+        )
+        return
 
     img = Image.open(input_path)
     pixelated = pixelate(
