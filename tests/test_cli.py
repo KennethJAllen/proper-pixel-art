@@ -164,4 +164,4 @@ def test_video_main_with_config_yaml(
 
     with Image.open(out_path) as result:
         assert result.size == (LOGICAL_SIZE * 2, LOGICAL_SIZE * 2)
-    assert (intermediate_dir / "aggregated_edges.png").is_file()
+    assert (intermediate_dir / "mesh.png").is_file()
