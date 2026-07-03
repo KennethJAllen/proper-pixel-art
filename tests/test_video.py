@@ -383,7 +383,12 @@ class TestIntermediateDir:
             input_path, tmp_path / "out.gif", num_colors=8, intermediate_dir=inter
         )
 
-        expected = {"closed_edges.png", "lines.png", "mesh.png", "quantized_original.png"}
+        expected = {
+            "closed_edges.png",
+            "lines.png",
+            "mesh.png",
+            "quantized_original.png",
+        }
         written = {p.name for p in inter.iterdir()}
         assert expected <= written
         # The pre-fix redundant duplicate of closed_edges.png is gone.
