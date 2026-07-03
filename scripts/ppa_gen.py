@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from PIL import Image
 
-from proper_pixel_art.cli import add_pixelation_args
+from proper_pixel_art.cli import add_pixelation_args, collect_pixelation_overrides
 from proper_pixel_art.pixelate import pixelate
 
 
@@ -137,14 +137,7 @@ def process_image(
 
     # Pixelate
     print(f"Pixelating image {index + 1}...")
-    pixelated_image = pixelate(
-        original_image,
-        num_colors=args.num_colors,
-        initial_upscale_factor=args.initial_upscale,
-        scale_result=args.scale_result,
-        transparent_background=args.transparent,
-        pixel_width=args.pixel_width,
-    )
+    pixelated_image = pixelate(original_image, **collect_pixelation_overrides(args))
 
     # Save pixelated
     pixelated_image.save(pixelated_path)
