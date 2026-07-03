@@ -470,10 +470,9 @@ def pixelate_video(
             "'gif'. Use a .mp4/.gif output path or pass output_format."
         )
 
-    # Resolve output path
-    if not output_path.suffix:
-        output_path = output_path / f"{input_path.stem}_pixelated.{output_format}"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # A directory output gets its default '{stem}_{W}x{H}.{ext}' filename once
+    # the first processed frame reveals the output size.
+    output_is_dir = not output_path.suffix
 
     if cfg.transparent_background and output_format == "gif":
         print(
@@ -518,6 +517,12 @@ def pixelate_video(
         frames = list(processed_frames())
         if not frames:
             raise ValueError(f"Could not read any frames from {input_path}")
+        if output_is_dir:
+            width, height = frames[0].size
+            output_path = utils.build_output_path(
+                output_path, input_path, f"_{width}x{height}", output_format
+            )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_gif(frames, output_path, durations, color_config=cfg.colors)
     else:
         frames_iter = processed_frames()
@@ -530,6 +535,11 @@ def pixelate_video(
             yield first
             yield from frames_iter
 
+        if output_is_dir:
+            output_path = utils.build_output_path(
+                output_path, input_path, f"_{first.width}x{first.height}", output_format
+            )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_mp4(with_first(), output_path, info.fps, (first.width, first.height))
         if durations and max(durations) > 1.1 * min(durations):
             print(

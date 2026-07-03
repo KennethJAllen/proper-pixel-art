@@ -219,6 +219,24 @@ class TestOutputFormat:
         assert output_path.exists()
 
 
+class TestOutputNaming:
+    def test_directory_output_gets_size_suffix(self, tmp_path: Path):
+        """A directory output gets the same '<stem>_<W>x<H>.<ext>' default
+        name as the image pipeline."""
+        arrays = _make_noisy_arrays(3)
+        input_path = tmp_path / "anim.gif"
+        _save_gif(arrays, input_path, [50] * 3)
+        out_dir = tmp_path / "out"
+
+        output_path = video.pixelate_video(
+            input_path, out_dir, num_colors=8, scale_result=2
+        )
+
+        size = LOGICAL_SIZE * 2
+        assert output_path == out_dir / f"anim_{size}x{size}.gif"
+        assert output_path.is_file()
+
+
 class TestVariableFrameSizeGif:
     def test_iter_frames_composites_delta_frames(self, tmp_path: Path):
         """GIF writers crop unchanged regions away, so stored frames have

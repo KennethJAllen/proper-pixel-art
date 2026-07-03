@@ -128,12 +128,14 @@ The output format follows the output extension (e.g. `-o out.mp4` converts a GIF
 ppa <input.mp4|input.gif> -o <output_path> --config config.example.yaml
 ```
 
-For extra control over the video pipeline, the `ppa-video` command accepts the same options plus:
+Two extra options apply to video/GIF inputs (they are ignored for images):
 
 | Option                          | Description                                                                  |
 | ------------------------------- | ---------------------------------------------------------------------------- |
 | `-f`, `--format` `<mp4\|gif>`   | Output format. (default: inferred from output, then input, extension)        |
 | `-n`, `--sample-frames` `<int>` | Frames sampled for mesh and palette detection. (default: 8)                  |
+
+The `ppa-video` command is a deprecated alias for `ppa`, kept for compatibility.
 
 GIF input is decoded with full frame compositing (variable-size delta frames, per-frame durations, and transparency are preserved). GIF output uses a single global palette.
 

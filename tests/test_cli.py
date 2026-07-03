@@ -86,26 +86,54 @@ def fixture_gif_path(tmp_path: Path) -> Path:
     return input_path
 
 
-def test_video_parse_args_positional_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["ppa-video", "in.gif"])
-    args = cli_video.parse_args()
+def test_parse_args_positional_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["ppa", "in.gif"])
+    args = cli.parse_args()
     assert args.input_path == Path("in.gif")
-    # Unset flags stay None ("not provided"), consistent with the image CLI
+    # Unset flags stay None ("not provided") so they fall back to --config
     assert args.config is None
     assert args.intermediate_dir is None
     assert args.transparent_background is None
+    assert args.output_format is None
+    assert args.sample_frames == 8
 
 
-def test_video_parse_args_input_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["ppa-video", "-i", "in.gif"])
-    args = cli_video.parse_args()
+def test_parse_args_input_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["ppa", "-i", "in.gif"])
+    args = cli.parse_args()
     assert args.input_path == Path("in.gif")
 
 
-def test_video_parse_args_config_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["ppa-video", "in.gif", "--config", "cfg.yaml"])
-    args = cli_video.parse_args()
+def test_parse_args_config_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["ppa", "in.gif", "--config", "cfg.yaml"])
+    args = cli.parse_args()
     assert args.config == Path("cfg.yaml")
+
+
+def test_parse_args_video_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    """-f/--format and -n/--sample-frames parse on the main ppa command."""
+    monkeypatch.setattr(sys, "argv", ["ppa", "in.gif", "-f", "mp4", "-n", "4"])
+    args = cli.parse_args()
+    assert args.output_format == "mp4"
+    assert args.sample_frames == 4
+
+
+def test_ppa_video_alias_deprecated(
+    monkeypatch: pytest.MonkeyPatch,
+    gif_path: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """The deprecated ppa-video alias still works end to end and notes the
+    deprecation on stderr."""
+    out_path = tmp_path / "result.gif"
+
+    run_video_cli(monkeypatch, str(gif_path), "-o", str(out_path), "-c", "8")
+
+    assert "deprecated" in capsys.readouterr().err
+    assert out_path.is_file()
+    with Image.open(out_path) as result:
+        assert result.n_frames == 3
 
 
 def test_video_main_requires_input_path(monkeypatch: pytest.MonkeyPatch) -> None:

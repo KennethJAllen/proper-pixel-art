@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from proper_pixel_art import pixelate
+from proper_pixel_art import pixelate, utils
 from proper_pixel_art.config import PixelateConfig
 
 # Inputs with these suffixes are dispatched to the video pipeline; everything
@@ -89,6 +89,34 @@ PIXELATION_FIELDS = (
 )
 
 
+def add_video_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Add the video/GIF-only arguments (ignored for image inputs)."""
+    video_group = parser.add_argument_group("Video/GIF options")
+    video_group.add_argument(
+        "-f",
+        "--format",
+        dest="output_format",
+        choices=["mp4", "gif"],
+        default=None,
+        help=(
+            "Output format (default: inferred from output extension, then input extension). "
+            "Applies to video/GIF inputs only; ignored for images."
+        ),
+    )
+    video_group.add_argument(
+        "-n",
+        "--sample-frames",
+        dest="sample_frames",
+        type=int,
+        default=8,
+        help=(
+            "Number of frames to sample for mesh detection (default: 8). "
+            "Applies to video/GIF inputs only; ignored for images."
+        ),
+    )
+    return parser
+
+
 def add_config_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Add the ``--config`` / ``--intermediate-dir`` arguments shared by both CLIs."""
     parser.add_argument(
@@ -134,8 +162,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Generate true-resolution pixel art from a source image, video, or GIF. "
-            "Video and GIF inputs are dispatched to the video pipeline "
-            "(see ppa-video for its extra options)."
+            "Video and GIF inputs are auto-detected and dispatched to the video pipeline."
         )
     )
     parser.add_argument(
@@ -170,6 +197,7 @@ def parse_args() -> argparse.Namespace:
 
     # Flags default to None so unset ones fall back to --config; see pixelate().
     add_pixelation_args(parser)
+    add_video_args(parser)
 
     args = parser.parse_args()
 
@@ -184,10 +212,7 @@ def resolve_output_path(
     If outpath is a directory, make it a file path
     with filename e.g. (input stem)_pixelated.png
     """
-    if out_path.suffix:
-        return out_path
-    filename = f"{input_path.stem}{suffix}.png"
-    return out_path / filename
+    return utils.build_output_path(out_path, input_path, suffix, ext="png")
 
 
 def main() -> None:
@@ -209,6 +234,8 @@ def main() -> None:
         video.pixelate_video(
             input_path=input_path,
             output_path=Path(args.out_path),
+            output_format=args.output_format,
+            num_sample_frames=args.sample_frames,
             intermediate_dir=args.intermediate_dir,
             config=config,
             **overrides,
