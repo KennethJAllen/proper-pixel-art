@@ -74,6 +74,57 @@ def add_pixelation_args(
     return parser
 
 
+# Each dest added by add_pixelation_args matches a pixelate/pixelate_video kwarg.
+PIXELATION_FIELDS = (
+    "num_colors",
+    "scale_result",
+    "transparent_background",
+    "pixel_width",
+    "initial_upscale_factor",
+)
+
+
+def add_config_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Add the ``--config`` / ``--intermediate-dir`` arguments shared by both CLIs."""
+    parser.add_argument(
+        "--config",
+        dest="config",
+        type=Path,
+        default=None,
+        help="Path to a YAML config file of pixelation parameters. Any flags passed explicitly override values in the file.",
+    )
+    parser.add_argument(
+        "--intermediate-dir",
+        dest="intermediate_dir",
+        type=Path,
+        default=None,
+        help="Directory to save images visualizing intermediate algorithm steps (created if needed).",
+    )
+    return parser
+
+
+def collect_pixelation_overrides(args: argparse.Namespace) -> dict:
+    """Collect the explicit pixelation flag values from parsed args.
+
+    Values are ``None`` when the flag wasn't provided, so they fall back to
+    the config / built-in defaults downstream.
+    """
+    return {field: getattr(args, field) for field in PIXELATION_FIELDS}
+
+
+def resolve_input_path(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> argparse.Namespace:
+    """Resolve the positional input path against the ``-i``/``--input`` flag,
+    erroring out when neither is given."""
+    if args.input_path is None and args.input_path_flag is None:
+        parser.error("You must provide an input path (positional or with -i).")
+    args.input_path = (
+        args.input_path if args.input_path is not None else args.input_path_flag
+    )
+    return args
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a true-resolution pixel-art image from a source image."
@@ -103,20 +154,7 @@ def parse_args() -> argparse.Namespace:
         default=Path("."),
         help="Path where the pixelated image will be saved. Can be either a directory or a file path.",
     )
-    parser.add_argument(
-        "--config",
-        dest="config",
-        type=Path,
-        default=None,
-        help="Path to a YAML config file of pixelation parameters. Any flags passed explicitly override values in the file.",
-    )
-    parser.add_argument(
-        "--intermediate-dir",
-        dest="intermediate_dir",
-        type=Path,
-        default=None,
-        help="Directory to save images visualizing intermediate algorithm steps (created if needed).",
-    )
+    add_config_args(parser)
 
     # Flags default to None so unset ones fall back to --config; see pixelate().
     add_pixelation_args(parser)
@@ -124,13 +162,7 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
 
     # Either take the input as the first argument or use the -i flag
-    if args.input_path is None and args.input_path_flag is None:
-        parser.error("You must provide an input path (positional or with -i).")
-    args.input_path = (
-        args.input_path if args.input_path is not None else args.input_path_flag
-    )
-
-    return args
+    return resolve_input_path(parser, args)
 
 
 def resolve_output_path(
@@ -152,15 +184,8 @@ def main() -> None:
 
     config = PixelateConfig.from_yaml(args.config) if args.config else None
 
-    # Each arg's dest matches a pixelate kwarg; None values fall back to config.
-    pixelate_fields = (
-        "num_colors",
-        "scale_result",
-        "transparent_background",
-        "pixel_width",
-        "initial_upscale_factor",
-    )
-    overrides = {field: getattr(args, field) for field in pixelate_fields}
+    # None values fall back to config / built-in defaults inside pixelate.
+    overrides = collect_pixelation_overrides(args)
 
     if args.intermediate_dir is not None:
         args.intermediate_dir.mkdir(exist_ok=True, parents=True)

@@ -122,6 +122,12 @@ Pixelate animations (e.g. from video models such as Sora) with `ppa-video`. The 
 ppa-video <input.mp4|input.gif> -o <output_path> -c <num_colors> [-f mp4|gif]
 ```
 
+A YAML config file works the same as for `ppa` (see [Configuration file](#configuration-file)); flags passed explicitly override values in the file:
+
+```bash
+ppa-video <input.mp4|input.gif> -o <output_path> --config config.example.yaml
+```
+
 It accepts the same pixelation options as `ppa` (see the table above), plus:
 
 | Option                          | Description                                                                  |

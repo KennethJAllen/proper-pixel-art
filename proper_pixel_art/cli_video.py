@@ -5,7 +5,13 @@ from importlib.metadata import version
 from pathlib import Path
 
 from proper_pixel_art import video
-from proper_pixel_art.cli import add_pixelation_args
+from proper_pixel_art.cli import (
+    add_config_args,
+    add_pixelation_args,
+    collect_pixelation_overrides,
+    resolve_input_path,
+)
+from proper_pixel_art.config import PixelateConfig
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,34 +58,37 @@ def parse_args() -> argparse.Namespace:
         default=8,
         help="Number of frames to sample for mesh detection (default: 8).",
     )
+    add_config_args(parser)
 
+    # Flags default to None so unset ones fall back to --config; see pixelate_video().
     add_pixelation_args(parser)
 
     args = parser.parse_args()
 
-    if args.input_path is None and args.input_path_flag is None:
-        parser.error("You must provide an input path (positional or with -i).")
-    args.input_path = (
-        args.input_path if args.input_path is not None else args.input_path_flag
-    )
-
-    return args
+    # Either take the input as the first argument or use the -i flag
+    return resolve_input_path(parser, args)
 
 
 def main() -> None:
     args = parse_args()
     input_path = Path(args.input_path).expanduser()
 
+    config = PixelateConfig.from_yaml(args.config) if args.config else None
+
+    # None values fall back to config / built-in defaults inside pixelate_video.
+    overrides = collect_pixelation_overrides(args)
+
+    if args.intermediate_dir is not None:
+        args.intermediate_dir.mkdir(exist_ok=True, parents=True)
+
     video.pixelate_video(
         input_path=input_path,
         output_path=Path(args.out_path),
-        num_colors=args.num_colors,
-        scale_result=args.scale_result,
-        transparent_background=bool(args.transparent_background),
-        pixel_width=args.pixel_width,
-        initial_upscale_factor=args.initial_upscale_factor,
         output_format=args.output_format,
         num_sample_frames=args.sample_frames,
+        intermediate_dir=args.intermediate_dir,
+        config=config,
+        **overrides,
     )
 
 
