@@ -13,6 +13,7 @@ import pytest
 from PIL import Image
 
 from proper_pixel_art import video, video_io
+from proper_pixel_art.config import PixelateConfig
 
 LOGICAL_SIZE = 16
 PIXEL_WIDTH = 10
@@ -218,6 +219,24 @@ class TestOutputFormat:
         assert output_path.exists()
 
 
+class TestOutputNaming:
+    def test_directory_output_gets_size_suffix(self, tmp_path: Path):
+        """A directory output gets the same '<stem>_<W>x<H>.<ext>' default
+        name as the image pipeline."""
+        arrays = _make_noisy_arrays(3)
+        input_path = tmp_path / "anim.gif"
+        _save_gif(arrays, input_path, [50] * 3)
+        out_dir = tmp_path / "out"
+
+        output_path = video.pixelate_video(
+            input_path, out_dir, num_colors=8, scale_result=2
+        )
+
+        size = LOGICAL_SIZE * 2
+        assert output_path == out_dir / f"anim_{size}x{size}.gif"
+        assert output_path.is_file()
+
+
 class TestVariableFrameSizeGif:
     def test_iter_frames_composites_delta_frames(self, tmp_path: Path):
         """GIF writers crop unchanged regions away, so stored frames have
@@ -277,6 +296,75 @@ class TestTransparentBackground:
                 assert (alpha[:, 0] == 0).all() and (alpha[:, -1] == 0).all()
                 # The moving red square stays opaque
                 assert (alpha[3:7, 2:6] == 255).any()
+
+
+class TestConfigSupport:
+    def test_config_values_apply(self, tmp_path: Path):
+        """Scalar values from a config take effect (scale_result is observable)."""
+        arrays = _make_noisy_arrays(3)
+        input_path = tmp_path / "anim.gif"
+        _save_gif(arrays, input_path, [50] * 3)
+        cfg = PixelateConfig.from_dict({"num_colors": 8, "scale_result": 4})
+
+        output_path = video.pixelate_video(input_path, tmp_path / "out.gif", config=cfg)
+
+        with Image.open(output_path) as result:
+            assert result.size == (LOGICAL_SIZE * 4, LOGICAL_SIZE * 4)
+            _assert_colors_near_palette(result)
+
+    def test_explicit_args_override_config(self, tmp_path: Path):
+        """Explicit scalar kwargs beat the corresponding config values."""
+        arrays = _make_noisy_arrays(3)
+        input_path = tmp_path / "anim.gif"
+        _save_gif(arrays, input_path, [50] * 3)
+        cfg = PixelateConfig.from_dict({"num_colors": 8, "scale_result": 4})
+
+        output_path = video.pixelate_video(
+            input_path, tmp_path / "out.gif", num_colors=2, scale_result=2, config=cfg
+        )
+
+        with Image.open(output_path) as result:
+            # Explicit scale_result=2 beats config's 4
+            assert result.size == (LOGICAL_SIZE * 2, LOGICAL_SIZE * 2)
+            # Explicit num_colors=2 beats config's 8: the 4-color fixture
+            # collapses to at most 2 colors
+            rgb = np.asarray(result.convert("RGB")).reshape(-1, 3)
+            assert len(np.unique(rgb, axis=0)) <= 2
+
+    def test_config_reaches_mesh_and_color_stages(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """cfg.mesh / cfg.colors are threaded into the internal stages."""
+        arrays = _make_noisy_arrays(3)
+        input_path = tmp_path / "anim.gif"
+        _save_gif(arrays, input_path, [50] * 3)
+        cfg = PixelateConfig.from_dict(
+            {
+                "num_colors": 8,
+                "mesh": {"closure_kernel_size": 6},
+                "colors": {"top_colors_limit": 4},
+            }
+        )
+        captured = {}
+
+        original_mesh = video.compute_video_mesh
+        original_palette = video.build_global_palette
+
+        def spy_mesh(*args, **kwargs):
+            captured["mesh_config"] = kwargs.get("mesh_config")
+            return original_mesh(*args, **kwargs)
+
+        def spy_palette(*args, **kwargs):
+            captured["color_config"] = kwargs.get("color_config")
+            return original_palette(*args, **kwargs)
+
+        monkeypatch.setattr(video, "compute_video_mesh", spy_mesh)
+        monkeypatch.setattr(video, "build_global_palette", spy_palette)
+
+        video.pixelate_video(input_path, tmp_path / "out.gif", config=cfg)
+
+        assert captured["mesh_config"] is cfg.mesh
+        assert captured["color_config"] is cfg.colors
 
 
 class TestVideoIo:

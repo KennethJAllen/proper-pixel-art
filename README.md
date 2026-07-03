@@ -27,7 +27,7 @@ by [Kenneth Allen](https://www.kennethallenmath.com/)
 
 ## Summary
 
-Converts noisy, high-resolution pixel-art-style images (from generative models or low-quality web uploads) into clean, true-resolution assets. Such images often have a non-uniform grid and random artifacts, so standard downsampling fails — the usual alternatives are naive downscaling or redrawing the asset pixel by pixel. This tool automates the recovery instead. Videos and GIFs are supported too via `ppa-video`.
+Converts noisy, high-resolution pixel-art-style images (from generative models or low-quality web uploads) into clean, true-resolution assets. Such images often have a non-uniform grid and random artifacts, so standard downsampling fails — the usual alternatives are naive downscaling or redrawing the asset pixel by pixel. This tool automates the recovery instead. Videos and GIFs are supported too.
 
 ## Contents
 
@@ -96,7 +96,7 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 
 | Option                            | Description                                                                                               |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| INPUT (positional)                | Source file in pixel-art-style                                                                            |
+| INPUT (positional)                | Source image, video, or GIF in pixel-art style                                                            |
 | `-o`, `--output` `<path>`         | Output directory or file path for result. (default: '.')                                                  |
 | `-c`, `--colors` `<int>`          | Number of colors for output (1-256). Use 0 to skip quantization and preserve all colors. May need to try a few different values. (default 0) |
 | `-s`, `--scale-result` `<int>`    | Width/height of each "pixel" in the output. 1 = no scaling. (default: 1)                                  |
@@ -116,18 +116,26 @@ Note: `--colors` is the parameter most likely to need tuning. See the option tab
 
 ### Videos and GIFs
 
-Pixelate animations (e.g. from video models such as Sora) with `ppa-video`. The pixel mesh and color palette are computed once from sampled frames and applied to every frame, so the animation stays consistent with no flicker.
+Video and GIF inputs are recognized by extension, so the same `ppa` command pixelates animations too (e.g. from video models such as Sora). The pixel mesh and color palette are computed once from sampled frames and applied to every frame, so the animation stays consistent with no flicker.
 
 ```bash
-ppa-video <input.mp4|input.gif> -o <output_path> -c <num_colors> [-f mp4|gif]
+ppa <input.mp4|input.gif> -o <output_path> -c <num_colors>
 ```
 
-It accepts the same pixelation options as `ppa` (see the table above), plus:
+The output format follows the output extension (e.g. `-o out.mp4` converts a GIF to MP4), and all the pixelation options and `--config` from the table above apply:
+
+```bash
+ppa <input.mp4|input.gif> -o <output_path> --config config.example.yaml
+```
+
+Two extra options apply to video/GIF inputs (they are ignored for images):
 
 | Option                          | Description                                                                  |
 | ------------------------------- | ---------------------------------------------------------------------------- |
 | `-f`, `--format` `<mp4\|gif>`   | Output format. (default: inferred from output, then input, extension)        |
 | `-n`, `--sample-frames` `<int>` | Frames sampled for mesh and palette detection. (default: 8)                  |
+
+The `ppa-video` command is a deprecated alias for `ppa`, kept for compatibility.
 
 GIF input is decoded with full frame compositing (variable-size delta frames, per-frame durations, and transparency are preserved). GIF output uses a single global palette.
 

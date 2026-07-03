@@ -1,11 +1,26 @@
 """Utility functions"""
 
+from pathlib import Path
+
 from PIL import Image, ImageDraw
 
 Lines = list[int]  # Lines are a list of pixel indices for an image
 Mesh = tuple[
     Lines, Lines
 ]  # A mesh is a tuple of lists of x coordinates and y coordinates for lines
+
+
+def build_output_path(
+    out_path: Path, input_path: Path, stem_suffix: str = "", ext: str = "png"
+) -> Path:
+    """Resolve a directory output path to a default file name.
+
+    A path with a suffix is treated as an explicit file path and returned
+    unchanged; a directory gets ``{input stem}{stem_suffix}.{ext}``.
+    """
+    if out_path.suffix:
+        return out_path
+    return out_path / f"{input_path.stem}{stem_suffix}.{ext}"
 
 
 def crop_border(image: Image.Image, num_pixels: int = 1) -> Image.Image:

@@ -11,6 +11,7 @@ Pixelates animations in two passes for temporal consistency and speed:
 """
 
 from collections import Counter
+from dataclasses import replace
 from math import ceil
 from pathlib import Path
 
@@ -397,11 +398,13 @@ def pixelate_video(
     output_path: Path,
     num_colors: int | None = None,
     scale_result: int | None = None,
-    transparent_background: bool = False,
+    transparent_background: bool | None = None,
     pixel_width: int | None = None,
     initial_upscale_factor: int | None = None,
     output_format: str | None = None,
     num_sample_frames: int = 8,
+    intermediate_dir: Path | None = None,
+    config: PixelateConfig | None = None,
 ) -> Path:
     """
     Pixelate a video or GIF file.
@@ -409,26 +412,47 @@ def pixelate_video(
     Samples a few frames to compute a master mesh and a global color palette,
     then applies both to every frame for a temporally consistent result.
 
+    Every pixelation parameter defaults to ``None``, meaning "not provided" —
+    the value is taken from ``config`` (or the built-in defaults). Pass a
+    concrete value to override the config.
+
     Args:
         input_path: Path to input video/GIF
         output_path: Path for output file (directory or file)
-        num_colors: Number of colors for quantization (0/None to skip)
+        num_colors: Number of colors for quantization (0 to skip)
         scale_result: Upscale result by this factor
         transparent_background: Make background transparent
-        pixel_width: Override automatic pixel width detection (0/None = auto)
+        pixel_width: Override automatic pixel width detection (0 = auto)
         initial_upscale_factor: Upscale factor for mesh detection
         output_format: Output format ("mp4" or "gif"). Inferred if None.
         num_sample_frames: Frames to sample for mesh/palette detection
+        intermediate_dir: Directory to save images visualizing intermediate steps
+        config: A PixelateConfig bundling every tunable parameter. Load one from
+            YAML with PixelateConfig.from_yaml. Any of the explicit arguments
+            above, when provided (not None), override the corresponding value
+            in config.
 
     Returns:
         Path to the output file
     """
     input_path = Path(input_path)
     output_path = Path(output_path)
-    initial_upscale_factor = (
-        initial_upscale_factor or PixelateConfig().initial_upscale_factor
-    )
-    pixel_width = pixel_width or None  # 0 / None -> auto-detect
+
+    # Resolution order: explicit argument > config > built-in defaults.
+    cfg = config if config is not None else PixelateConfig()
+    overrides = {
+        name: value
+        for name, value in (
+            ("num_colors", num_colors),
+            ("initial_upscale_factor", initial_upscale_factor),
+            ("scale_result", scale_result),
+            ("transparent_background", transparent_background),
+            ("pixel_width", pixel_width),
+        )
+        if value is not None
+    }
+    if overrides:
+        cfg = replace(cfg, **overrides)
 
     # Resolve output format
     if output_format is None:
@@ -446,12 +470,11 @@ def pixelate_video(
             "'gif'. Use a .mp4/.gif output path or pass output_format."
         )
 
-    # Resolve output path
-    if not output_path.suffix:
-        output_path = output_path / f"{input_path.stem}_pixelated.{output_format}"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # A directory output gets its default '{stem}_{W}x{H}.{ext}' filename once
+    # the first processed frame reveals the output size.
+    output_is_dir = not output_path.suffix
 
-    if transparent_background and output_format == "gif":
+    if cfg.transparent_background and output_format == "gif":
         print(
             "Warning: GIF only supports binary transparency. "
             "Results may not look as expected with --transparent."
@@ -463,17 +486,20 @@ def pixelate_video(
     sample_frames = video_io.read_sample_frames(input_path, num_sample_frames, info)
     mesh_lines, upscale_factor = compute_video_mesh(
         sample_frames,
-        upscale_factor=initial_upscale_factor,
-        pixel_width=pixel_width,
+        upscale_factor=cfg.initial_upscale_factor,
+        pixel_width=cfg.pixel_width or None,  # 0 / None -> auto-detect
+        output_dir=intermediate_dir,
+        mesh_config=cfg.mesh,
     )
     pipeline = FramePipeline(
         mesh_lines,
         upscale_factor,
         info.size,
-        num_colors,
+        cfg.num_colors,
         sample_frames,
-        transparent_background=transparent_background,
-        scale_result=scale_result,
+        transparent_background=cfg.transparent_background,
+        scale_result=cfg.scale_result,
+        color_config=cfg.colors,
     )
 
     # Pass 2: stream every frame through the pipeline
@@ -491,7 +517,13 @@ def pixelate_video(
         frames = list(processed_frames())
         if not frames:
             raise ValueError(f"Could not read any frames from {input_path}")
-        _write_gif(frames, output_path, durations)
+        if output_is_dir:
+            width, height = frames[0].size
+            output_path = utils.build_output_path(
+                output_path, input_path, f"_{width}x{height}", output_format
+            )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_gif(frames, output_path, durations, color_config=cfg.colors)
     else:
         frames_iter = processed_frames()
         try:
@@ -503,6 +535,11 @@ def pixelate_video(
             yield first
             yield from frames_iter
 
+        if output_is_dir:
+            output_path = utils.build_output_path(
+                output_path, input_path, f"_{first.width}x{first.height}", output_format
+            )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_mp4(with_first(), output_path, info.fps, (first.width, first.height))
         if durations and max(durations) > 1.1 * min(durations):
             print(
