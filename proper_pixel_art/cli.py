@@ -226,8 +226,14 @@ def main() -> None:
     # None values fall back to config / built-in defaults inside pixelate.
     overrides = collect_pixelation_overrides(args)
 
-    if args.intermediate_dir is not None:
-        args.intermediate_dir.mkdir(exist_ok=True, parents=True)
+    # Debug images go in a per-input subdirectory named after the input stem
+    # (e.g. --intermediate-dir foo + wisp.mp4 -> foo/wisp/), mirroring the
+    # stem-based output-path convention and keeping multiple runs from
+    # clobbering each other in a shared directory.
+    intermediate_dir = args.intermediate_dir
+    if intermediate_dir is not None:
+        intermediate_dir = intermediate_dir / input_path.stem
+        intermediate_dir.mkdir(parents=True, exist_ok=True)
 
     if input_path.suffix.lower() in VIDEO_SUFFIXES:
         # Deferred import so image runs don't pay the cv2 import cost.
@@ -238,7 +244,7 @@ def main() -> None:
             output_path=Path(args.out_path),
             output_format=args.output_format,
             num_sample_frames=args.sample_frames,
-            intermediate_dir=args.intermediate_dir,
+            intermediate_dir=intermediate_dir,
             config=config,
             **overrides,
         )
@@ -246,7 +252,7 @@ def main() -> None:
 
     img = Image.open(input_path)
     pixelated = pixelate(
-        img, config=config, intermediate_dir=args.intermediate_dir, **overrides
+        img, config=config, intermediate_dir=intermediate_dir, **overrides
     )
 
     width, height = pixelated.size

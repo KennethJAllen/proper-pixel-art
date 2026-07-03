@@ -367,6 +367,55 @@ class TestConfigSupport:
         assert captured["color_config"] is cfg.colors
 
 
+class TestIntermediateDir:
+    # pixelate_video writes fixed-named debug images straight into the dir it is
+    # given; the per-input subdirectory (foo/<stem>/) is a CLI-layer convention
+    # (see tests/test_cli.py), not a pixelate_video behavior.
+    def test_writes_debug_visualizations(self, tmp_path: Path):
+        """intermediate_dir gets the mesh overlays and palette preview, matching
+        the still-image path — not just a redundant edge dump."""
+        arrays = _make_noisy_arrays(4)
+        input_path = tmp_path / "anim.gif"
+        _save_gif(arrays, input_path, [50] * 4)
+        inter = tmp_path / "inter"
+
+        video.pixelate_video(
+            input_path, tmp_path / "out.gif", num_colors=8, intermediate_dir=inter
+        )
+
+        expected = {
+            "closed_edges.png",
+            "lines.png",
+            "mesh.png",
+            "quantized_original.png",
+        }
+        written = {p.name for p in inter.iterdir()}
+        assert expected <= written
+        # The pre-fix redundant duplicate of closed_edges.png is gone.
+        assert "aggregated_edges.png" not in written
+        # The edge map and the palette preview capture different stages, so must
+        # not be byte-identical (guards against the old same-array-twice bug).
+        assert (inter / "closed_edges.png").read_bytes() != (
+            inter / "quantized_original.png"
+        ).read_bytes()
+
+    def test_skip_quantization_omits_palette_preview(self, tmp_path: Path):
+        """With quantization skipped (num_colors=0) there is no palette to
+        preview, but the mesh overlays are still written."""
+        arrays = _make_noisy_arrays(4)
+        input_path = tmp_path / "anim.gif"
+        _save_gif(arrays, input_path, [50] * 4)
+        inter = tmp_path / "inter"
+
+        video.pixelate_video(
+            input_path, tmp_path / "out.gif", num_colors=0, intermediate_dir=inter
+        )
+
+        written = {p.name for p in inter.iterdir()}
+        assert {"closed_edges.png", "lines.png", "mesh.png"} <= written
+        assert "quantized_original.png" not in written
+
+
 class TestVideoIo:
     def test_probe_gif(self, tmp_path: Path):
         durations = [100, 40, 40, 120]

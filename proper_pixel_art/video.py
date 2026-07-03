@@ -108,15 +108,26 @@ def compute_video_mesh(
 
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(aggregated, mode="L").save(output_dir / "aggregated_edges.png")
 
+    # The aggregated edge map is at the upscaled resolution (each frame is scaled
+    # by upscale_factor before edge detection), so the debug overlay must match.
+    representative = (
+        utils.scale_img(frames[0].convert("RGBA"), upscale_factor)
+        if output_dir is not None
+        else None
+    )
     mesh_lines = mesh.compute_mesh_from_edges(
-        aggregated, pixel_width=pixel_width, output_dir=output_dir
+        aggregated,
+        pixel_width=pixel_width,
+        output_dir=output_dir,
+        original_img=representative,
+        mesh_config=mesh_config,
     )
     if not mesh.is_trivial_mesh(mesh_lines):
         return mesh_lines, upscale_factor
 
-    # Fallback: try without upscaling
+    # Fallback: try without upscaling. This overwrites the debug images from the
+    # attempt above, which is fine — the fallback mesh is the one we return.
     aggregated_fallback = aggregate_edge_maps(
         frames,
         upscale_factor=1,
@@ -124,7 +135,11 @@ def compute_video_mesh(
         min_vote_fraction=min_vote_fraction,
     )
     fallback_mesh = mesh.compute_mesh_from_edges(
-        aggregated_fallback, pixel_width=pixel_width, output_dir=output_dir
+        aggregated_fallback,
+        pixel_width=pixel_width,
+        output_dir=output_dir,
+        original_img=frames[0].convert("RGBA") if output_dir is not None else None,
+        mesh_config=mesh_config,
     )
     return fallback_mesh, 1
 
@@ -133,10 +148,14 @@ def build_global_palette(
     frames: list[Image.Image],
     num_colors: int,
     color_config: ColorConfig | None = None,
+    output_dir: Path | None = None,
 ) -> tuple[Image.Image, str]:
     """
     Build one shared palette from sampled frames so every frame quantizes to
     the same colors (no palette flicker between frames).
+
+    Args:
+        output_dir: If set, save the quantized sample mosaic as a debug image.
 
     Returns:
         Tuple of (P-mode palette image, background hex used by clamp_alpha).
@@ -169,6 +188,8 @@ def build_global_palette(
     palette_img = clamped.quantize(
         colors=num_colors, method=color_config.quantize, dither=Image.Dither.NONE
     )
+    if output_dir is not None:
+        palette_img.save(output_dir / "quantized_original.png")
     return palette_img, background_hex
 
 
@@ -193,6 +214,7 @@ class FramePipeline:
         transparent_background: bool = False,
         scale_result: int | None = None,
         color_config: ColorConfig | None = None,
+        intermediate_dir: Path | None = None,
     ):
         width, height = frame_size
         factor = upscale_factor
@@ -211,7 +233,10 @@ class FramePipeline:
             self.background_hex = None
         else:
             self.palette_img, self.background_hex = build_global_palette(
-                sample_frames, num_colors, color_config=self.color_config
+                sample_frames,
+                num_colors,
+                color_config=self.color_config,
+                output_dir=intermediate_dir,
             )
             self.palette_rgb = np.array(
                 self.palette_img.getpalette(), dtype=np.uint8
@@ -500,6 +525,7 @@ def pixelate_video(
         transparent_background=cfg.transparent_background,
         scale_result=cfg.scale_result,
         color_config=cfg.colors,
+        intermediate_dir=intermediate_dir,
     )
 
     # Pass 2: stream every frame through the pipeline
