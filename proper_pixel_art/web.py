@@ -90,9 +90,27 @@ def create_demo():
 
 def main():
     """Entry point for ppa-web command."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Web interface for Proper Pixel Art")
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Host address to bind the server to (e.g., 127.0.0.1 or 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to run the server on (e.g., 7860)",
+    )
+    args = parser.parse_args()
+
     demo = create_demo()
-    demo.launch()
+    demo.launch(server_name=args.host, server_port=args.port)
 
 
 if __name__ == "__main__":
     main()
+
