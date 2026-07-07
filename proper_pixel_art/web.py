@@ -360,8 +360,11 @@ def create_demo():
 
         # track_tqdm=True lets the video pipeline's tqdm loop drive a live
         # browser progress bar. Declaring the progress arg here (where gradio is
-        # imported) keeps the pure process() gradio-Progress-free.
-        def run(*args, progress=gr.Progress(track_tqdm=True)):  # noqa: B008 - gradio injects Progress via the default arg
+        # imported) keeps the pure process() gradio-Progress-free. progress must
+        # come *before* *args: gradio's special_args only scans positional
+        # parameters for a Progress default and stops at the first *args, so a
+        # keyword-only progress after *args is never detected (no browser bar).
+        def run(progress=gr.Progress(track_tqdm=True), *args):  # noqa: B008 - gradio injects Progress via the default arg
             return process(*args)
 
         # An instant "Processing…" flip precedes the work so the click registers
