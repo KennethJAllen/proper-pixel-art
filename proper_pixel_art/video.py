@@ -18,6 +18,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 
 from proper_pixel_art import colors, mesh, utils, video_io
 from proper_pixel_art.config import ColorConfig, MeshConfig, PixelateConfig
@@ -528,16 +529,21 @@ def pixelate_video(
         intermediate_dir=intermediate_dir,
     )
 
-    # Pass 2: stream every frame through the pipeline
-    total = info.n_frames if info.n_frames > 0 else "?"
+    # Pass 2: stream every frame through the pipeline. tqdm renders the CLI
+    # progress bar; under ppa-web, gr.Progress(track_tqdm=True) hooks the same
+    # loop to drive the browser progress bar.
+    total = info.n_frames if info.n_frames > 0 else None
     durations: list[int] = []
 
     def processed_frames():
-        for index, (frame, duration) in enumerate(video_io.iter_frames(input_path)):
+        for frame, duration in tqdm(
+            video_io.iter_frames(input_path),
+            total=total,
+            desc="Processing frames",
+            unit="frame",
+        ):
             durations.append(duration)
-            print(f"\rProcessing frame {index + 1}/{total}", end="", flush=True)
             yield pipeline.process(frame)
-        print()
 
     if output_format == "gif":
         frames = list(processed_frames())
