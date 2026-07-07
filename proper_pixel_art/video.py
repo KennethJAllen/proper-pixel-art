@@ -12,10 +12,10 @@ Pixelates animations in two passes for temporal consistency and speed:
 
 from collections import Counter
 from dataclasses import replace
+from fractions import Fraction
 from math import ceil
 from pathlib import Path
 
-import cv2
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
@@ -332,29 +332,42 @@ def _write_mp4(
 ) -> None:
     """Write frames to MP4, streaming one frame at a time.
 
-    Tries the H.264 fourcc first and falls back to MPEG-4 Part 2, which is
-    always available in opencv-python builds.
+    Encodes with libx264 at crf=1 (near-lossless) in yuv420p, the one pixel
+    format every player (including Safari/QuickTime) accepts. The 4:2:0
+    chroma subsampling is invisible for pixel art once each logical pixel
+    spans at least a 2x2 block, and crf=1 preserves the hard edges that
+    default rate control smears.
     """
-    writer = None
-    chosen_codec = None
-    for codec in ("avc1", "mp4v"):
-        fourcc = cv2.VideoWriter_fourcc(*codec)
-        writer = cv2.VideoWriter(str(output_path), fourcc, fps, frame_size)
-        if writer.isOpened():
-            chosen_codec = codec
-            break
-        writer.release()
-        writer = None
-    if writer is None:
-        raise ValueError(f"Could not open a video writer for {output_path}")
+    import av  # lazy: only MP4 writing needs it
 
-    print(f"Writing MP4 with codec {chosen_codec}")
-    try:
+    width, height = frame_size
+    # yuv420p requires even dimensions; pad right/bottom by replicating the
+    # edge row/column (visually invisible for pixel art).
+    out_w, out_h = width + width % 2, height + height % 2
+
+    print("Writing MP4 (libx264, crf 1)")
+    with av.open(str(output_path), mode="w") as container:
+        stream = container.add_stream(
+            "libx264", rate=Fraction(fps).limit_denominator(65535)
+        )
+        stream.width, stream.height = out_w, out_h
+        stream.pix_fmt = "yuv420p"
+        stream.options = {"crf": "1", "preset": "medium"}
         for frame in frames_iter:
-            rgb = np.array(frame.convert("RGB"))
-            writer.write(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-    finally:
-        writer.release()
+            rgb = np.asarray(frame.convert("RGB"))
+            if (out_w, out_h) != (width, height):
+                rgb = np.pad(
+                    rgb, ((0, out_h - height), (0, out_w - width), (0, 0)), mode="edge"
+                )
+            video_frame = av.VideoFrame.from_ndarray(rgb, format="rgb24")
+            # Convert chroma with an exact 2x2 box filter ("AREA"): the
+            # default bicubic filter's wide taps bleed chroma several pixels
+            # across the hard color edges pixel art is made of.
+            video_frame = video_frame.reformat(format="yuv420p", interpolation="AREA")
+            for packet in stream.encode(video_frame):
+                container.mux(packet)
+        for packet in stream.encode():  # flush
+            container.mux(packet)
 
 
 def _write_gif(
