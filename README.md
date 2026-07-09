@@ -31,185 +31,19 @@ Converts noisy, high-resolution pixel-art-style images (from generative models o
 
 ## Contents
 
+- [Examples](#examples)
 - [Installation](#installation)
   - [Install From PyPI](#install-from-pypi)
   - [Install from source](#install-from-source)
+  - [Run without installing](#run-without-installing)
 - [Usage](#usage)
   - [Web Interface](#web-interface)
   - [CLI](#cli)
   - [Videos and GIFs](#videos-and-gifs)
-  - [Use Without Cloning](#use-without-cloning)
   - [Python API](#python-api)
   - [Configuration file](#configuration-file)
-- [Examples](#examples)
 - [Real Images To Pixel Art](#real-images-to-pixel-art)
 - [Algorithm](#algorithm)
-
-## Installation
-
-### Install From PyPI
-
-```bash
-pip install proper-pixel-art  # CLI and Python API
-pip install "proper-pixel-art[web]"  #  Include the local web UI
-```
-
-Or with `uv`:
-
-```bash
-uv add proper-pixel-art  # CLI and Python API
-uv add proper-pixel-art --extra web  # Include the local web UI
-```
-
-### Install from source
-
-```bash
-git clone git@github.com:KennethJAllen/proper-pixel-art.git
-cd proper-pixel-art
-uv sync --extra web
-```
-
-## Usage
-
-First, obtain a source pixel-art-style image (e.g. from a generative model such as OpenAI's `gpt-image-2`, or a web upload of pixel art).
-
-> The examples below assume you installed via `pip install` or `uv add` (commands are on your `PATH`). If you installed from source with `uv sync`, prefix each command with `uv run` (e.g. `uv run ppa ...`).
-
-### Web Interface
-
-Try it live in your browser, no install required, on [Hugging Face Spaces](https://huggingface.co/spaces/kennethallen/proper-pixel-art).
-
-To run the same interface locally:
-
-```bash
-ppa-web
-# Opens http://127.0.0.1:7860
-```
-
-### CLI
-
-```bash
-ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
-```
-
-#### Options
-
-| Option                            | Description                                                                                               |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| INPUT (positional)                | Source image, video, or GIF in pixel-art style                                                            |
-| `-o`, `--output` `<path>`         | Output directory or file path for result. (default: '.')                                                  |
-| `-c`, `--colors` `<int>`          | Number of colors for output (1-256). Use 0 to skip quantization and preserve all colors. May need to try a few different values. (default 0) |
-| `-s`, `--scale-result` `<int>`    | Width/height of each "pixel" in the output. 1 = no scaling. (default: 1)                                  |
-| `-t`, `--transparent`             | Output with transparent background. (default: off)                                                        |
-| `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
-| `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. Use 0 to determine it automatically. (default: 0)                 |
-| `--config` `<path>`               | YAML config file of pixelation parameters. Flags passed explicitly override values in the file. (default: none) |
-| `--intermediate-dir` `<path>`     | Directory to save images visualizing intermediate algorithm steps. Useful for development. (default: none) |
-
-#### Example
-
-```bash
-ppa assets/blob/blob.png -c 16 -s 25
-```
-
-Note: `--colors` is the parameter most likely to need tuning. See the option table above.
-
-### Videos and GIFs
-
-Video and GIF inputs are recognized by extension, so the same `ppa` command pixelates animations too (e.g. from video models such as Sora). The pixel mesh and color palette are computed once from sampled frames and applied to every frame, so the animation stays consistent with no flicker.
-
-```bash
-ppa <input.mp4|input.gif> -o <output_path> -c <num_colors>
-```
-
-The output format follows the output extension (e.g. `-o out.mp4` converts a GIF to MP4), and all the pixelation options and `--config` from the table above apply:
-
-```bash
-ppa <input.mp4|input.gif> -o <output_path> --config config.example.yaml
-```
-
-Two extra options apply to video/GIF inputs (they are ignored for images):
-
-| Option                          | Description                                                                  |
-| ------------------------------- | ---------------------------------------------------------------------------- |
-| `-f`, `--format` `<mp4\|gif>`   | Output format. (default: inferred from output, then input, extension)        |
-| `-n`, `--sample-frames` `<int>` | Frames sampled for mesh and palette detection. (default: 8)                  |
-
-The `ppa-video` command is a deprecated alias for `ppa`, kept for compatibility.
-
-GIF input is decoded with full frame compositing (variable-size delta frames, per-frame durations, and transparency are preserved). GIF output uses a single global palette.
-
-From Python:
-
-```python
-from proper_pixel_art.video import pixelate_video
-
-pixelate_video('input.mp4', 'output.gif', num_colors=16)
-```
-
-### Use Without Cloning
-
-#### Web Interface (without cloning)
-
-```bash
-uvx --from "proper-pixel-art[web]" ppa-web
-```
-
-#### CLI (without cloning)
-
-```bash
-uvx --from "proper-pixel-art" ppa <input_path>
-```
-
-### Python API
-
-For Python developers who want to integrate this tool into their own code.
-
-```python
-from PIL import Image
-from proper_pixel_art import pixelate
-
-image = Image.open('path/to/input.png')
-result = pixelate(image, num_colors=16)
-result.save('path/to/output.png')
-```
-
-#### Parameters
-
-These mirror the CLI options above.
-
-- `image` : `PIL.Image.Image` — the image to pixelate.
-- `num_colors` : `int` — colors in result (1-256), or 0 to skip quantization. Most likely to need tuning.
-- `initial_upscale_factor` : `int` — upscale the input first; may help detect lines.
-- `scale_result` : `int` — upscale the result; 1 = no scaling.
-- `transparent_background` : `bool` — if True, make all pixels matching the most common boundary color transparent.
-- `intermediate_dir` : `Path | None` — save visualizations of intermediate steps (for development).
-- `pixel_width` : `int` — pixel width in the input, or 0 to detect automatically.
-- `config` : `PixelateConfig | None` — a bundle of *every* tunable parameter, including the deeper mesh-detection (Canny, Hough, line clustering) and color (alpha/transparency thresholds, quantization method, color binning) settings not exposed as direct arguments. Load one with `PixelateConfig.from_yaml(path)`. Explicit arguments override matching values in `config`.
-
-#### Returns
-
-A PIL image with true pixel resolution and quantized colors.
-
-### Configuration file
-
-All tunable parameters can be collected in a YAML file so you can fine-tune the algorithm without changing code. See [`config.example.yaml`](config.example.yaml) for the full list of keys with their defaults. Any key you omit falls back to the default, so partial files are fine.
-
-```python
-from PIL import Image
-from proper_pixel_art import pixelate
-from proper_pixel_art.config import PixelateConfig
-
-config = PixelateConfig.from_yaml('config.yaml')
-result = pixelate(Image.open('input.png'), config=config)
-```
-
-From the CLI, pass `--config`. Flags given explicitly override values from the file:
-
-```bash
-ppa input.png --config config.yaml      # use the file
-ppa input.png --config config.yaml -c 8 # but override num_colors to 8
-```
 
 ## Examples
 
@@ -301,29 +135,175 @@ Here are a few examples. A mesh is computed, where each cell corresponds to one 
   </tr>
 </table>
 
+## Installation
+
+### Install From PyPI
+
+```bash
+pip install proper-pixel-art  # CLI and Python API
+pip install "proper-pixel-art[web]"  #  Include the local web UI
+```
+
+Or with `uv`:
+
+```bash
+uv add proper-pixel-art  # CLI and Python API
+uv add proper-pixel-art --extra web  # Include the local web UI
+```
+
+### Install from source
+
+```bash
+git clone git@github.com:KennethJAllen/proper-pixel-art.git
+cd proper-pixel-art
+uv sync --extra web
+```
+
+### Run without installing
+
+`uvx` can run the tools directly:
+
+```bash
+uvx --from "proper-pixel-art" ppa <input_path>  # CLI
+uvx --from "proper-pixel-art[web]" ppa-web      # Local web UI
+```
+
+## Usage
+
+First, obtain a source pixel-art-style image (e.g. from a generative model such as OpenAI's `gpt-image-2`, or a web upload of pixel art). See [`scripts/README.md`](scripts/README.md) for a helper script that generates source images from a prompt.
+
+> The examples below assume you installed via `pip install` or `uv add` (commands are on your `PATH`). If you installed from source with `uv sync`, prefix each command with `uv run` (e.g. `uv run ppa ...`).
+
+### Web Interface
+
+Try it live in your browser, no install required, on [Hugging Face Spaces](https://huggingface.co/spaces/kennethallen/proper-pixel-art).
+
+To run the same interface locally:
+
+```bash
+ppa-web
+# Opens http://127.0.0.1:7860
+```
+
+### CLI
+
+```bash
+ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
+```
+
+#### Options
+
+| Option                            | Description                                                                                               |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| INPUT (positional)                | Source image, video, or GIF in pixel-art style                                                            |
+| `-o`, `--output` `<path>`         | Output directory or file path for result. (default: '.')                                                  |
+| `-c`, `--colors` `<int>`          | Number of colors for output (1-256). Use 0 to skip quantization and preserve all colors. May need to try a few different values. (default 0) |
+| `-s`, `--scale-result` `<int>`    | Width/height of each "pixel" in the output. 1 = no scaling. (default: 1)                                  |
+| `-t`, `--transparent`             | Output with transparent background. (default: off)                                                        |
+| `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
+| `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. Use 0 to determine it automatically. (default: 0)                 |
+| `--config` `<path>`               | YAML config file of pixelation parameters. Flags passed explicitly override values in the file. (default: none) |
+| `--intermediate-dir` `<path>`     | Directory to save images visualizing intermediate algorithm steps. Useful for development. (default: none) |
+
+#### Example
+
+```bash
+ppa assets/blob/blob.png -c 16 -s 25
+```
+
+> Tip: `--colors` (`-c`) is the parameter most likely to need tuning — try a few values if the result looks off.
+
+### Videos and GIFs
+
+Video and GIF inputs are recognized by extension, so the same `ppa` command pixelates animations too (e.g. from video models such as Sora). The result stays consistent frame-to-frame with no flicker — see [how the algorithm handles animations](#videos-and-gifs-1) for details.
+
+```bash
+ppa <input.mp4|input.gif> -o <output_path> -c <num_colors>
+```
+
+The output format follows the output extension (e.g. `-o out.mp4` converts a GIF to MP4), and all the pixelation options and `--config` from the table above apply.
+
+Two extra options apply to video/GIF inputs (they are ignored for images):
+
+| Option                          | Description                                                                  |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `-f`, `--format` `<mp4\|gif>`   | Output format. (default: inferred from output, then input, extension)        |
+| `-n`, `--sample-frames` `<int>` | Frames sampled for mesh and palette detection. (default: 8)                  |
+
+The `ppa-video` command is a deprecated alias for `ppa`, kept for compatibility.
+
+GIF input is decoded with full frame compositing (variable-size delta frames, per-frame durations, and transparency are preserved). GIF output uses a single global palette.
+
+MP4 output is encoded near-losslessly (libx264 at CRF 1) via [PyAV](https://pyav.org/), whose wheels bundle the FFmpeg libraries — so quality doesn't depend on what's installed on your machine. Note for anyone redistributing a bundled app: PyAV's wheels ship a GPL build of FFmpeg.
+
+### Python API
+
+For Python developers who want to integrate this tool into their own code.
+
+```python
+from PIL import Image
+from proper_pixel_art import pixelate
+
+image = Image.open('path/to/input.png')
+result = pixelate(image, num_colors=16)
+result.save('path/to/output.png')
+```
+
+Videos and GIFs have their own entry point:
+
+```python
+from proper_pixel_art.video import pixelate_video
+
+pixelate_video('input.mp4', 'output.gif', num_colors=16)
+```
+
+#### Parameters
+
+The keyword arguments mirror the CLI options table above: `num_colors` (`-c`), `scale_result` (`-s`), `transparent_background` (`-t`), `initial_upscale_factor` (`-u`), `pixel_width` (`-w`), and `intermediate_dir` (`--intermediate-dir`). In addition:
+
+- `image` : `PIL.Image.Image` — the image to pixelate.
+- `config` : `PixelateConfig | None` — a bundle of every tunable parameter, loaded with `PixelateConfig.from_yaml(path)` (see [Configuration file](#configuration-file)). Explicit arguments override matching values in `config`.
+
+#### Returns
+
+A PIL image with true pixel resolution and quantized colors.
+
+### Configuration file
+
+All tunable parameters can be collected in a YAML file so you can fine-tune the algorithm without changing code — including the deeper mesh-detection (Canny, Hough, line clustering) and color (alpha/transparency thresholds, quantization method, color binning) settings not exposed as CLI flags or direct arguments. See [`config.example.yaml`](config.example.yaml) for the full list of keys with their defaults. Any key you omit falls back to the default, so partial files are fine.
+
+```python
+from PIL import Image
+from proper_pixel_art import pixelate
+from proper_pixel_art.config import PixelateConfig
+
+config = PixelateConfig.from_yaml('config.yaml')
+result = pixelate(Image.open('input.png'), config=config)
+```
+
+From the CLI, pass `--config`. Flags given explicitly override values from the file:
+
+```bash
+ppa input.png --config config.yaml      # use the file
+ppa input.png --config config.yaml -c 8 # but override num_colors to 8
+```
+
 ## Real Images To Pixel Art
 
-- This tool can also be used to convert real images to pixel art by first requesting a pixelated version of the original image from GPT-4o, then using the tool to get the true pixel-resolution image.
-
-- Consider this image of a mountain
-
-<img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/mountain/real.jpg" width="50%" alt="Original mountain"/>
-
-- Here are the results of first requesting a pixelated version of the mountain, then using the tool to get a true resolution pixel art version.
+This tool can also be used to convert real images to pixel art: first request a pixelated version of the original image from GPT-4o, then use the tool to get the true pixel-resolution image. The mountain at the top of this README was made this way, starting from this photo:
 
 <table align="center" width="100%">
   <tr>
-    <td width="33%">
-      <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/mountain/mountain.png" style="width:100%;" />
-      <br><small>Noisy, High Resolution</small>
+    <td width="47%">
+      <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/mountain/real.jpg" style="width:100%;" />
+      <br><small>Original photo</small>
     </td>
-    <td width="33%">
-      <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/mountain/mesh.png" style="width:100%;" />
-      <br><small>Mesh</small>
+    <td width="6%" align="center" valign="middle">
+      <h1>→</h1>
     </td>
-    <td width="33%">
+    <td width="47%">
       <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/mountain/result.png" style="width:100%;" />
-      <br><small>True Pixel Resolution</small>
+      <br><small>True-resolution pixel art</small>
     </td>
   </tr>
 </table>
@@ -367,3 +347,7 @@ Here's a step-by-step overview, applied to this GPT-4o-generated blob:
     - Result upscaled by a factor of $20 \times$ using nearest neighbor.
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/result.png" width="80%" alt="blob pixelated"/>
+
+### Videos and GIFs
+
+The same algorithm generalizes to animations by exploiting the fact that every frame shares one underlying pixel grid and palette. Rather than solving frames independently (which would make the mesh and colors jitter frame-to-frame), the mesh-detection steps (1–6) and color quantization (step 7) are run once over a sample of frames to fix a single grid and shared palette. That grid and palette are then applied to snap every frame (step 8), so the whole animation resolves to consistent, true pixel resolution.
