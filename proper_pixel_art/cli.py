@@ -99,7 +99,7 @@ def add_video_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         choices=["mp4", "gif"],
         default=None,
         help=(
-            "Output format (default: inferred from output extension, then input extension). "
+            "Output format (default: gif; a .mp4 output path also selects mp4). "
             "Applies to video/GIF inputs only; ignored for images."
         ),
     )

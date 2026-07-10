@@ -76,6 +76,15 @@ def aggregate_edge_maps(
     return ((accumulator >= min_votes) * 255).astype(np.uint8)
 
 
+def _edge_density_profiles(edge_map: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Column/row edge-density sums of a binary edge map, used as the 1-D
+    evidence profiles for line snapping. There is no single grayscale source
+    for the aggregated map, but edge density peaks at the same grid boundaries
+    a gradient profile would."""
+    binary = (edge_map > 0).astype(np.float64)
+    return binary.sum(axis=0), binary.sum(axis=1)
+
+
 def compute_video_mesh(
     frames: list[Image.Image],
     upscale_factor: int = 2,
@@ -122,6 +131,7 @@ def compute_video_mesh(
         output_dir=output_dir,
         original_img=representative,
         mesh_config=mesh_config,
+        profiles=_edge_density_profiles(aggregated),
     )
     if not mesh.is_trivial_mesh(mesh_lines):
         return mesh_lines, upscale_factor
@@ -140,6 +150,7 @@ def compute_video_mesh(
         output_dir=output_dir,
         original_img=frames[0].convert("RGBA") if output_dir is not None else None,
         mesh_config=mesh_config,
+        profiles=_edge_density_profiles(aggregated_fallback),
     )
     return fallback_mesh, 1
 
@@ -449,7 +460,9 @@ def pixelate_video(
         transparent_background: Make background transparent
         pixel_width: Override automatic pixel width detection (0 = auto)
         initial_upscale_factor: Upscale factor for mesh detection
-        output_format: Output format ("mp4" or "gif"). Inferred if None.
+        output_format: Output format ("mp4" or "gif"). Defaults to "gif"
+            regardless of the input format; a ".mp4" output path also
+            selects "mp4".
         num_sample_frames: Frames to sample for mesh/palette detection
         intermediate_dir: Directory to save images visualizing intermediate steps
         config: A PixelateConfig bundling every tunable parameter. Load one from
@@ -479,15 +492,10 @@ def pixelate_video(
     if overrides:
         cfg = replace(cfg, **overrides)
 
-    # Resolve output format
+    # Resolve output format: explicit argument, then output extension,
+    # otherwise GIF regardless of the input format.
     if output_format is None:
-        if output_path.suffix:
-            output_format = output_path.suffix.lstrip(".")
-        else:
-            # Inferring from the input is best-effort: any non-GIF input
-            # (webm, mov, ...) simply produces an mp4.
-            inferred = input_path.suffix.lstrip(".").lower()
-            output_format = inferred if inferred in ("mp4", "gif") else "mp4"
+        output_format = output_path.suffix.lstrip(".") if output_path.suffix else "gif"
     output_format = output_format.lower()
     if output_format not in ("mp4", "gif"):
         raise ValueError(

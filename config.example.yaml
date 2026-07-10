@@ -17,6 +17,12 @@ mesh:
   cluster_threshold: 4
   angle_threshold_deg: 15
   trim_outlier_fraction: 0.2
+  snap_lines: true                 # snap interpolated grid lines to gradient-profile peaks
+  snap_search_window_ratio: 0.35   # snap search window as fraction of pixel width
+  snap_min_search_window: 2        # minimum snap search window in pixels
+  snap_strength_threshold: 0.5     # peak must exceed this x mean profile value to snap
+  profile_width_min_gaps: 5        # fewer Hough gaps than this -> profile width estimate
+  split_leftover_fraction: 0.4     # leftover fraction of pixel width that earns an extra grid line (0.5 = plain rounding)
   hough:
     rho: 1.0
     theta_deg: 1.0

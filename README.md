@@ -122,7 +122,7 @@ Video and GIF inputs are recognized by extension, so the same `ppa` command pixe
 ppa <input.mp4|input.gif> -o <output_path> -c <num_colors>
 ```
 
-The output format follows the output extension (e.g. `-o out.mp4` converts a GIF to MP4), and all the pixelation options and `--config` from the table above apply:
+The output is a GIF, whatever the input was. To get MP4 instead, opt in with `-f mp4` or by naming a `.mp4` output path. All the pixelation options and `--config` from the table above apply:
 
 ```bash
 ppa <input.mp4|input.gif> -o <output_path> --config config.example.yaml
@@ -132,7 +132,7 @@ Two extra options apply to video/GIF inputs (they are ignored for images):
 
 | Option                          | Description                                                                  |
 | ------------------------------- | ---------------------------------------------------------------------------- |
-| `-f`, `--format` `<mp4\|gif>`   | Output format. (default: inferred from output, then input, extension)        |
+| `-f`, `--format` `<mp4\|gif>`   | Output format. (default: gif; a `.mp4` output path also selects mp4)        |
 | `-n`, `--sample-frames` `<int>` | Frames sampled for mesh and palette detection. (default: 8)                  |
 
 The `ppa-video` command is a deprecated alias for `ppa`, kept for compatibility.

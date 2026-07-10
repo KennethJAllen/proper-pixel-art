@@ -42,6 +42,16 @@ class MeshConfig:
     cluster_threshold: int = 4  # max distance (px) to merge nearby grid lines
     angle_threshold_deg: float = 15  # tolerance for vertical/horizontal lines
     trim_outlier_fraction: float = 0.2  # tail fraction trimmed for pixel-width estimate
+    snap_lines: bool = True  # snap interpolated grid lines to gradient-profile peaks
+    snap_search_window_ratio: float = 0.35  # search window as fraction of pixel width
+    snap_min_search_window: int = 2  # minimum search window in pixels
+    snap_strength_threshold: float = 0.5  # peak must exceed this x mean profile to snap
+    profile_width_min_gaps: int = (
+        5  # fewer Hough gaps than this -> profile width estimate
+    )
+    split_leftover_fraction: float = (
+        0.4  # leftover fraction of pixel width that earns an extra grid line
+    )
     hough: HoughConfig = field(default_factory=HoughConfig)
 
 
