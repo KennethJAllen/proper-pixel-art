@@ -67,8 +67,8 @@ def detect_grid_lines(edges: np.ndarray, mesh_config: MeshConfig | None = None) 
         return lines_x, lines_y
 
     angle_threshold_deg = mesh_config.angle_threshold_deg
-    # Loop over all detected lines, only keep the ones that are close to vertical or horizontal
-    for x1, y1, x2, y2 in hough_lines[:, 0]:
+    # Loop over all detected lines, only keep the ones that are close to vertical or horizontal.
+    for x1, y1, x2, y2 in hough_lines.reshape(-1, 4):
         dx, dy = x2 - x1, y2 - y1
         angle = abs(np.arctan2(dy, dx))
         # vertical if angle > 90-threshold, horizontal if angle < threshold
