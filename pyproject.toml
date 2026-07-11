@@ -1,6 +1,6 @@
 [project]
 name = "proper-pixel-art"
-version = "1.7.1"
+version = "1.7.2"
 description = "Converts pixel-art-style images such as those from generative models or low-quality sprite web uploads to true resolution usable assets."
 authors = [{name = "Kenneth Allen"}]
 readme = "README.md"
@@ -27,10 +27,12 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
+    "av>=12.0",
     "numpy>=2.2.4",
     "opencv-python-headless>=4.11.0.86",
     "pillow>=12.1.0",
     "pyyaml>=6.0",
+    "tqdm>=4.66",
 ]
 
 [project.urls]

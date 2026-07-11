@@ -185,6 +185,44 @@ class TestMp4Output:
         assert abs(n_frames - 6) <= 1  # codecs may report off-by-one counts
         assert size == (LOGICAL_SIZE * 4, LOGICAL_SIZE * 4)
 
+    def test_mp4_fidelity(self, tmp_path: Path):
+        """MP4 output must be near-lossless: solid palette blocks survive the
+        encode within a few units per channel (regression test for the old
+        cv2.VideoWriter smearing)."""
+        rng = np.random.default_rng(3)
+        arrays = [
+            np.repeat(np.repeat(logical, PIXEL_WIDTH, 0), PIXEL_WIDTH, 1)
+            for logical in _logical_frames(4, rng)
+        ]
+        frames = (Image.fromarray(arr, mode="RGB") for arr in arrays)
+        output_path = tmp_path / "out.mp4"
+        height, width = arrays[0].shape[:2]
+
+        video._write_mp4(frames, output_path, fps=10.0, frame_size=(width, height))
+
+        decoded = [
+            np.asarray(f.convert("RGB")) for f, _ in video_io.iter_frames(output_path)
+        ]
+        assert len(decoded) == len(arrays)
+        for original, roundtripped in zip(arrays, decoded, strict=True):
+            np.testing.assert_allclose(
+                roundtripped.astype(np.int16), original.astype(np.int16), atol=6
+            )
+
+    def test_mp4_odd_dimensions_padded_to_even(self, tmp_path: Path):
+        """Odd frame sizes are padded to even (yuv420p requirement) by
+        replicating the edge row/column."""
+        rng = np.random.default_rng(5)
+        arr = rng.integers(0, 256, size=(15, 17, 3), dtype=np.uint8)
+        frames = (Image.fromarray(arr, mode="RGB") for _ in range(3))
+        output_path = tmp_path / "odd.mp4"
+
+        video._write_mp4(frames, output_path, fps=10.0, frame_size=(17, 15))
+
+        decoded = [f for f, _ in video_io.iter_frames(output_path)]
+        assert len(decoded) == 3
+        assert decoded[0].size == (18, 16)
+
     def test_gif_to_mp4(self, tmp_path: Path):
         arrays = _make_noisy_arrays(4)
         input_path = tmp_path / "anim.gif"
