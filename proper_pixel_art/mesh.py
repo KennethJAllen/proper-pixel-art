@@ -520,8 +520,7 @@ def score_mesh(grey: np.ndarray, mesh: Mesh) -> float:
     sq_sums = np.bincount(ids, weights=values * values, minlength=n_cells)
     occupied = counts > 0
     variances = (
-        sq_sums[occupied] / counts[occupied]
-        - (sums[occupied] / counts[occupied]) ** 2
+        sq_sums[occupied] / counts[occupied] - (sums[occupied] / counts[occupied]) ** 2
     )
     # Weight by cell size so the score is a per-pixel quantity, comparable
     # across meshes with different cell counts.
@@ -564,9 +563,7 @@ def select_pixel_width(
         return candidates[0], {}
     context: set[int] = set()
     for candidate in eligible:
-        context.update(
-            {candidate - 1, candidate + 1, candidate * 2, candidate // 2}
-        )
+        context.update({candidate - 1, candidate + 1, candidate * 2, candidate // 2})
     valid = sorted(set(eligible) | {w for w in context if 2 <= w <= max_width})
 
     lines_x, lines_y = mesh_initial
@@ -574,8 +571,12 @@ def select_pixel_width(
     scores: dict[int, float] = {}
     for w in valid:
         mesh_candidate = (
-            homogenize_lines(list(lines_x), w, profile=profile_x, mesh_config=mesh_config),
-            homogenize_lines(list(lines_y), w, profile=profile_y, mesh_config=mesh_config),
+            homogenize_lines(
+                list(lines_x), w, profile=profile_x, mesh_config=mesh_config
+            ),
+            homogenize_lines(
+                list(lines_y), w, profile=profile_y, mesh_config=mesh_config
+            ),
         )
         scores[w] = score_mesh(grey, mesh_candidate)
 
@@ -676,7 +677,11 @@ def compute_mesh_from_edges(
                     width_x,
                     width_y,
                     *(map(estimate_width_from_profile, profiles) if profiles else ()),
-                    *(map(estimate_width_by_autocorrelation, profiles) if profiles else ()),
+                    *(
+                        map(estimate_width_by_autocorrelation, profiles)
+                        if profiles
+                        else ()
+                    ),
                 )
                 if w is not None
             ]

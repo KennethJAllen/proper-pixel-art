@@ -525,7 +525,9 @@ class TestColorMergeConsistency:
         # The static background must map to one shared color in every frame.
         union = set.union(*palettes)
         background_like = {
-            c for c in union if abs(c[0] - 40) < 30 and c[1] > 150 and abs(c[2] - 60) < 30
+            c
+            for c in union
+            if abs(c[0] - 40) < 30 and c[1] > 150 and abs(c[2] - 60) < 30
         }
         assert len(background_like) == 1
         assert background_like <= shared
