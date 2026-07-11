@@ -1613,7 +1613,7 @@ wheels = [
 
 [[package]]
 name = "proper-pixel-art"
-version = "1.7.2"
+version = "1.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "av", version = "17.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
