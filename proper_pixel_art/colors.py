@@ -276,6 +276,78 @@ def get_cell_color_skip_quantization(
     return (int(r), int(g), int(b), 255)
 
 
+class ColorMerger:
+    """Merge near-duplicate colors of small (output-resolution) images.
+
+    In the skip-quantization path each cell independently picks a
+    binned-median color, so logically-identical colors come out a few RGB
+    units apart (visible speckle in flat areas). This greedily clusters
+    colors by frequency: every color maps to the most frequent representative
+    within ``distance`` (Euclidean RGB), so flat areas collapse to one color.
+
+    Fit/apply are split so video frames share one mapping (no flicker):
+    fit once on the sampled frames, apply to every frame.
+    """
+
+    def __init__(self, distance: int = _DEFAULTS.output_color_merge_distance):
+        self.distance_sq = distance * distance
+        self.representatives: list[RGB] = []
+        self._mapping: dict[RGB, RGB] = {}
+
+    def _nearest_representative(self, color: RGB) -> RGB | None:
+        best, best_dist = None, self.distance_sq
+        for rep in self.representatives:
+            dist = _rgb_dist(color, rep)
+            if dist <= best_dist:
+                best, best_dist = rep, dist
+        return best
+
+    def fit(self, images: list[Image.Image]) -> "ColorMerger":
+        """Build the color mapping from the opaque pixels of small images."""
+        counts: Counter = Counter()
+        for image in images:
+            pixels = np.asarray(image.convert("RGBA")).reshape(-1, 4)
+            # int() the components: uint8 tuples would overflow in _rgb_dist
+            opaque = pixels[pixels[:, 3] >= ALPHA_THRESHOLD][:, :3].astype(int)
+            counts.update(map(tuple, opaque))
+        for color, _ in counts.most_common():
+            rep = self._nearest_representative(color)
+            if rep is None:
+                self.representatives.append(color)
+                self._mapping[color] = color
+            else:
+                self._mapping[color] = rep
+        return self
+
+    def apply(self, image: Image.Image) -> Image.Image:
+        """Remap an image's opaque colors through the fitted mapping. Colors
+        unseen at fit time map to the nearest representative within the
+        distance, else pass through unchanged. Transparent pixels are kept."""
+        rgba = np.asarray(image.convert("RGBA")).copy()
+        height, width = rgba.shape[:2]
+        pixels = rgba.reshape(-1, 4)
+        opaque = pixels[:, 3] >= ALPHA_THRESHOLD
+        unique, inverse = np.unique(
+            pixels[opaque, :3].astype(int), axis=0, return_inverse=True
+        )
+        remapped = np.empty_like(unique)
+        for i, color in enumerate(map(tuple, unique)):
+            mapped = self._mapping.get(color)
+            if mapped is None:
+                mapped = self._nearest_representative(color) or color
+                self._mapping[color] = mapped
+            remapped[i] = mapped
+        pixels[opaque, :3] = remapped[inverse]
+        return Image.fromarray(pixels.reshape(height, width, 4), mode="RGBA")
+
+
+def merge_output_colors(
+    image: Image.Image, distance: int = _DEFAULTS.output_color_merge_distance
+) -> Image.Image:
+    """Fit-and-apply :class:`ColorMerger` convenience for a single image."""
+    return ColorMerger(distance).fit([image]).apply(image)
+
+
 def palette_img(
     image: Image.Image,
     num_colors: int = 16,

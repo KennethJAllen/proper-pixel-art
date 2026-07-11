@@ -85,6 +85,27 @@ def _edge_density_profiles(edge_map: np.ndarray) -> tuple[np.ndarray, np.ndarray
     return binary.sum(axis=0), binary.sum(axis=1)
 
 
+def _grey_stack(
+    frames: list[Image.Image],
+    upscale_factor: int,
+    mesh_config: MeshConfig | None = None,
+) -> np.ndarray:
+    """(frames, H, W) grayscale stack over the sampled frames, replicating the
+    exact per-frame transform the edge maps saw (upscale, then crop/clamp via
+    ``mesh.compute_grey``) so it lives in edge-map coordinates. A stack rather
+    than a mean: averaging frames with moving content washes out the spatial
+    structure that width scoring depends on."""
+    return np.stack(
+        [
+            mesh.compute_grey(
+                utils.scale_img(frame.convert("RGBA"), upscale_factor),
+                mesh_config=mesh_config,
+            )
+            for frame in frames
+        ]
+    )
+
+
 def compute_video_mesh(
     frames: list[Image.Image],
     upscale_factor: int = 2,
@@ -132,6 +153,7 @@ def compute_video_mesh(
         original_img=representative,
         mesh_config=mesh_config,
         profiles=_edge_density_profiles(aggregated),
+        score_image=_grey_stack(frames, upscale_factor, mesh_config),
     )
     if not mesh.is_trivial_mesh(mesh_lines):
         return mesh_lines, upscale_factor
@@ -151,6 +173,9 @@ def compute_video_mesh(
         original_img=frames[0].convert("RGBA") if output_dir is not None else None,
         mesh_config=mesh_config,
         profiles=_edge_density_profiles(aggregated_fallback),
+        # The fallback edge map is at the original scale, so the score image
+        # must be recomputed at scale 1 rather than reused.
+        score_image=_grey_stack(frames, 1, mesh_config),
     )
     return fallback_mesh, 1
 
@@ -253,6 +278,14 @@ class FramePipeline:
                 self.palette_img.getpalette(), dtype=np.uint8
             ).reshape(-1, 3)
 
+        # One merger fitted on the sample frames gives every frame the same
+        # color mapping, so merging cannot flicker between frames.
+        self.color_merger: colors.ColorMerger | None = None
+        merge_distance = self.color_config.output_color_merge_distance
+        if self.skip_quantization and merge_distance > 0:
+            small_samples = [self._downsample_frame(f) for f in sample_frames]
+            self.color_merger = colors.ColorMerger(merge_distance).fit(small_samples)
+
         self.background_color: colors.RGB | None = None
         if transparent_background:
             self.background_color = self._pick_transparency_color(sample_frames)
@@ -292,7 +325,12 @@ class FramePipeline:
         decided once so every frame clears the same background color."""
         boundary_counts: Counter = Counter()
         for frame in sample_frames:
-            small = np.asarray(self._downsample_frame(frame).convert("RGB"))
+            small_img = self._downsample_frame(frame)
+            # Match process(): the boundary color is picked on merged colors
+            # because transparency is applied after merging there too.
+            if self.color_merger is not None:
+                small_img = self.color_merger.apply(small_img)
+            small = np.asarray(small_img.convert("RGB"))
             boundary = np.concatenate(
                 [small[0], small[-1], small[1:-1, 0], small[1:-1, -1]]
             )
@@ -303,6 +341,8 @@ class FramePipeline:
         """Pixelate a single frame using the precomputed global decisions."""
         result = self._downsample_frame(frame)
 
+        if self.color_merger is not None:
+            result = self.color_merger.apply(result)
         if self.background_color is not None:
             result = colors.apply_background_transparency(result, self.background_color)
         if self.scale_result and self.scale_result > 1:

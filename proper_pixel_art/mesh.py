@@ -14,6 +14,10 @@ from proper_pixel_art.utils import Lines, Mesh
 # holds the canonical values.
 _DEFAULTS = MeshConfig()
 
+# When width validation rejects the estimate, its replacement is the largest
+# candidate scoring within this fraction of the best (see select_pixel_width).
+_REPLACEMENT_TOLERANCE = 0.2
+
 
 def close_edges(
     edges: np.ndarray, kernel_size: int = _DEFAULTS.closure_kernel_size
@@ -141,9 +145,52 @@ def _snap_line_to_profile(
     if start > end:
         return clamped_target
     segment = profile[start : end + 1]
-    if float(segment.max()) > min_strength:
-        return start + int(np.argmax(segment))
+    max_val = float(segment.max())
+    if max_val > min_strength:
+        # A [-1, 0, 1] gradient kernel responds equally at a hard boundary
+        # and one position before it; break ties toward the target so the
+        # line does not drift systematically to the left.
+        peaks = start + np.flatnonzero(segment == max_val)
+        return int(peaks[np.abs(peaks - clamped_target).argmin()])
     return clamped_target
+
+
+def snap_anchor_lines(
+    lines: Lines,
+    profile: np.ndarray,
+    mesh_config: MeshConfig | None = None,
+) -> Lines:
+    """Snap Hough-detected (anchor) lines to the strongest profile peak within
+    ``anchor_snap_window`` pixels.
+
+    Detected lines carry small localization error (Hough accumulator
+    resolution, cluster medians); aligning them with gradient evidence before
+    width estimation and homogenization improves both the gap statistics and
+    the final mesh. The two border lines are never moved, and interior lines
+    that snapping pulls together are re-clustered with the borders pinned.
+    """
+    mesh_config = mesh_config or MeshConfig()
+    window = mesh_config.anchor_snap_window
+    if window <= 0 or len(lines) < 3 or profile.size == 0:
+        return lines
+    min_strength = mesh_config.snap_strength_threshold * float(profile.mean())
+    first, last = lines[0], lines[-1]
+    snapped = [first]
+    for index in range(1, len(lines) - 1):
+        # Sequential low/high bounds keep the lines strictly increasing.
+        snapped.append(
+            _snap_line_to_profile(
+                profile,
+                lines[index],
+                window,
+                min_strength,
+                low=snapped[-1] + 1,
+                high=lines[index + 1] - 1,
+            )
+        )
+    interior = cluster_lines(snapped[1:], threshold=mesh_config.cluster_threshold)
+    interior = [line for line in interior if first < line < last]
+    return [first, *interior, last]
 
 
 def _split_oversized_gaps(
@@ -337,6 +384,215 @@ def estimate_width_from_profile(
     return int(round(float(np.median(np.diff(merged)))))
 
 
+def estimate_width_by_autocorrelation(
+    profile: np.ndarray,
+    min_lag: int = 2,
+    min_correlation: float = 0.2,
+) -> int | None:
+    """
+    Estimate the pixel width as the period of a gradient projection profile
+    via autocorrelation. Unlike :func:`estimate_width_from_profile` this does
+    not need clean discrete peaks — the period is recovered even with missing
+    or noisy peaks. The first local maximum of the normalized autocorrelation
+    at lag >= ``min_lag`` that exceeds ``min_correlation`` is taken (the first
+    qualifying peak, not the global maximum, so the fundamental period wins
+    over its 2x/3x harmonics). Returns None when no such peak exists.
+    """
+    if profile.size < 2 * min_lag + 2:
+        return None
+    signal = profile.astype(np.float64) - float(profile.mean())
+    if not np.any(signal):
+        return None
+    n = signal.size
+    # FFT-based autocorrelation, zero-padded so it is linear (not circular).
+    fft_size = 1 << int(np.ceil(np.log2(2 * n - 1)))
+    spectrum = np.fft.rfft(signal, fft_size)
+    autocorr = np.fft.irfft(spectrum * np.conj(spectrum), fft_size)[:n]
+    if autocorr[0] <= 0:
+        return None
+    autocorr /= autocorr[0]
+    for lag in range(min_lag, n // 2):
+        is_local_max = (
+            autocorr[lag] > autocorr[lag - 1] and autocorr[lag] >= autocorr[lag + 1]
+        )
+        if is_local_max and autocorr[lag] >= min_correlation:
+            return lag
+    return None
+
+
+def estimate_axis_width(
+    lines: Lines,
+    profile: np.ndarray | None,
+    mesh_config: MeshConfig | None = None,
+) -> int | None:
+    """
+    Estimate the pixel width along a single axis.
+
+    Prefers the Hough gap median when the axis has enough detected gaps for a
+    stable estimate (border lines are always seeded, so the count is interior
+    gaps plus one); otherwise falls back to profile peak spacing, then to
+    autocorrelation. Returns None when no estimator produces a width.
+    """
+    mesh_config = mesh_config or MeshConfig()
+    num_gaps = max(len(lines) - 1, 0)
+    if num_gaps >= mesh_config.profile_width_min_gaps:
+        return get_pixel_width(
+            [lines], trim_outlier_fraction=mesh_config.trim_outlier_fraction
+        )
+    if profile is None:
+        return None
+    estimate = estimate_width_from_profile(profile)
+    if estimate is not None:
+        return estimate
+    return estimate_width_by_autocorrelation(profile)
+
+
+def resolve_pixel_width(
+    width_x: int | None,
+    width_y: int | None,
+    mesh_config: MeshConfig | None = None,
+) -> int | None:
+    """
+    Reconcile per-axis width estimates into a single width (pixels are assumed
+    square). When both axes agree within ``max_axis_width_ratio`` the rounded
+    mean is used; on larger disagreement the larger estimate is distrusted
+    (weak edge signal on an axis inflates its gaps) and the smaller wins.
+    With one estimate available it is used directly; with none, None.
+    """
+    mesh_config = mesh_config or MeshConfig()
+    if width_x is None:
+        return width_y
+    if width_y is None:
+        return width_x
+    smaller, larger = min(width_x, width_y), max(width_x, width_y)
+    if smaller > 0 and larger / smaller > mesh_config.max_axis_width_ratio:
+        return smaller
+    return int(round((width_x + width_y) / 2))
+
+
+def score_mesh(grey: np.ndarray, mesh: Mesh) -> float:
+    """
+    Score a mesh by the mean within-cell variance of a grayscale image (lower
+    is better). A mesh aligned with the true pixel grid encloses flat cells;
+    a misaligned or wrong-width mesh straddles pixel boundaries and mixes
+    colors within cells. Pixels outside the outer mesh lines are ignored.
+
+    ``grey`` may also be a (frames, height, width) stack (video): each frame
+    is scored against the same mesh with its own cells, so temporal color
+    changes don't dilute the spatial variance the score measures.
+
+    Cell assignment follows the same half-open interval semantics as
+    ``pixelate.build_cell_map`` but is implemented locally with bincounts to
+    avoid a mesh -> pixelate circular import.
+    """
+    lines_x, lines_y = mesh
+    lx = np.asarray(lines_x, dtype=np.int64)
+    ly = np.asarray(lines_y, dtype=np.int64)
+    n_cols, n_rows = len(lines_x) - 1, len(lines_y) - 1
+    if n_cols < 1 or n_rows < 1:
+        return float("inf")
+    stack = grey if grey.ndim == 3 else grey[None]
+    n_frames, height, width = stack.shape
+
+    coords_x = np.arange(width)
+    coords_y = np.arange(height)
+    xs = np.searchsorted(lx, coords_x, side="right") - 1
+    ys = np.searchsorted(ly, coords_y, side="right") - 1
+    xs[(coords_x < lx[0]) | (coords_x >= lx[-1])] = -1
+    ys[(coords_y < ly[0]) | (coords_y >= ly[-1])] = -1
+
+    cell_id = ys[:, None] * n_cols + xs[None, :]
+    cell_id[(ys[:, None] < 0) | (xs[None, :] < 0)] = -1
+
+    inside = cell_id >= 0
+    if not np.any(inside):
+        return float("inf")
+    n_cells_per_frame = n_rows * n_cols
+    # Distinct cell ids per frame: variance is within-cell-within-frame.
+    ids = np.concatenate(
+        [cell_id[inside] + k * n_cells_per_frame for k in range(n_frames)]
+    )
+    values = np.concatenate([frame[inside] for frame in stack]).astype(np.float64)
+
+    n_cells = n_cells_per_frame * n_frames
+    counts = np.bincount(ids, minlength=n_cells)
+    sums = np.bincount(ids, weights=values, minlength=n_cells)
+    sq_sums = np.bincount(ids, weights=values * values, minlength=n_cells)
+    occupied = counts > 0
+    variances = (
+        sq_sums[occupied] / counts[occupied]
+        - (sums[occupied] / counts[occupied]) ** 2
+    )
+    # Weight by cell size so the score is a per-pixel quantity, comparable
+    # across meshes with different cell counts.
+    return float((variances * counts[occupied]).sum() / counts[occupied].sum())
+
+
+def select_pixel_width(
+    grey: np.ndarray,
+    mesh_initial: Mesh,
+    profiles: tuple[np.ndarray, np.ndarray] | None,
+    candidates: list[int],
+    mesh_config: MeshConfig | None = None,
+) -> tuple[int, dict[int, float]]:
+    """
+    Validate the estimated pixel width (``candidates[0]``) by reconstruction
+    error, correcting it only on clear evidence.
+
+    Each candidate is used to build a full mesh via ``homogenize_lines`` and
+    scored with :func:`score_mesh`; the decision compares only the estimator-
+    backed ``candidates`` — smaller widths always score lower (smaller cells
+    average away noise, antialiasing and smooth shading, without bound on
+    smooth content), so a width no estimator produced is never adopted no
+    matter how well it scores. The estimate is kept unless it scores more
+    than ``(1 + width_selection_tolerance)`` times the best candidate; a
+    genuine harmonic lock-on (mesh cells spanning several true pixels) mixes
+    distinct pixel colors and fails that check, in which case the largest
+    candidate scoring close to the best replaces it (largest-first avoids
+    collapsing toward the small-cell advantage). With no acceptable
+    replacement the estimate is kept.
+
+    Returns the chosen width and the scores of all widths evaluated —
+    candidates plus their +-1/double/half neighborhood, which is scored only
+    for the debug output.
+    """
+    mesh_config = mesh_config or MeshConfig()
+    height, width = grey.shape[-2:]
+    max_width = min(height, width) // 2
+    eligible = sorted(w for w in set(candidates) if 2 <= w <= max_width)
+    if not eligible:
+        return candidates[0], {}
+    context: set[int] = set()
+    for candidate in eligible:
+        context.update(
+            {candidate - 1, candidate + 1, candidate * 2, candidate // 2}
+        )
+    valid = sorted(set(eligible) | {w for w in context if 2 <= w <= max_width})
+
+    lines_x, lines_y = mesh_initial
+    profile_x, profile_y = profiles if profiles is not None else (None, None)
+    scores: dict[int, float] = {}
+    for w in valid:
+        mesh_candidate = (
+            homogenize_lines(list(lines_x), w, profile=profile_x, mesh_config=mesh_config),
+            homogenize_lines(list(lines_y), w, profile=profile_y, mesh_config=mesh_config),
+        )
+        scores[w] = score_mesh(grey, mesh_candidate)
+
+    estimate = candidates[0]
+    best_score = min(scores[w] for w in eligible)
+    keep_threshold = (1.0 + mesh_config.width_selection_tolerance) * best_score
+    if estimate in scores and scores[estimate] <= keep_threshold:
+        return estimate, scores
+    # The estimate is decisively worse than another estimator's width;
+    # replace it with the largest such width scoring close to the best.
+    replace_threshold = (1.0 + _REPLACEMENT_TOLERANCE) * best_score
+    for w in sorted(eligible, reverse=True):
+        if scores[w] <= replace_threshold:
+            return w, scores
+    return estimate, scores  # no acceptable replacement: keep the estimate
+
+
 def compute_edge_map(
     img: Image.Image,
     mesh_config: MeshConfig | None = None,
@@ -367,6 +623,7 @@ def compute_mesh_from_edges(
     original_img: Image.Image | None = None,
     mesh_config: MeshConfig | None = None,
     profiles: tuple[np.ndarray, np.ndarray] | None = None,
+    score_image: np.ndarray | None = None,
 ) -> Mesh:
     """
     Compute mesh from a closed edge map using Hough transform and line homogenization.
@@ -380,6 +637,9 @@ def compute_mesh_from_edges(
         profiles: Optional (profile_x, profile_y) 1-D projection profiles in
             edge-map coordinates. Used to snap interpolated lines to gradient
             evidence and as a pixel-width fallback when Hough finds few lines.
+        score_image: Optional grayscale array in edge-map coordinates. When
+            given (and ``mesh_config.validate_width``), candidate pixel widths
+            are validated by reconstruction error instead of trusted blindly.
 
     Returns:
         The pixel mesh (mesh_x, mesh_y)
@@ -387,24 +647,49 @@ def compute_mesh_from_edges(
     mesh_config = mesh_config or MeshConfig()
     mesh_initial = detect_grid_lines(closed_edges, mesh_config)
 
-    if pixel_width is None:
-        pixel_width = get_pixel_width(
-            mesh_initial, trim_outlier_fraction=mesh_config.trim_outlier_fraction
+    # Align anchors with gradient evidence before estimating the width from
+    # their gaps and before homogenizing between them.
+    if profiles is not None and mesh_config.snap_lines:
+        mesh_initial = (
+            snap_anchor_lines(mesh_initial[0], profiles[0], mesh_config),
+            snap_anchor_lines(mesh_initial[1], profiles[1], mesh_config),
         )
-        # With too few Hough line gaps the median gap is unreliable; the
-        # profiles aggregate all edge evidence, so prefer their estimate.
-        num_gaps = sum(max(len(lines) - 1, 0) for lines in mesh_initial)
-        if profiles is not None and num_gaps < mesh_config.profile_width_min_gaps:
-            estimates = [
-                estimate
-                for estimate in map(estimate_width_from_profile, profiles)
-                if estimate is not None
-            ]
-            if estimates:
-                pixel_width = int(round(float(np.mean(estimates))))
 
     lines_x, lines_y = mesh_initial
     profile_x, profile_y = profiles if profiles is not None else (None, None)
+
+    if pixel_width is None:
+        width_x = estimate_axis_width(lines_x, profile_x, mesh_config)
+        width_y = estimate_axis_width(lines_y, profile_y, mesh_config)
+        pixel_width = resolve_pixel_width(width_x, width_y, mesh_config)
+        if pixel_width is None:
+            # Last resort: pooled gap median across both axes (border lines
+            # are always seeded, so there is at least one gap per axis).
+            pixel_width = get_pixel_width(
+                mesh_initial, trim_outlier_fraction=mesh_config.trim_outlier_fraction
+            )
+        if mesh_config.validate_width and score_image is not None and pixel_width >= 2:
+            candidates = [
+                w
+                for w in (
+                    pixel_width,
+                    width_x,
+                    width_y,
+                    *(map(estimate_width_from_profile, profiles) if profiles else ()),
+                    *(map(estimate_width_by_autocorrelation, profiles) if profiles else ()),
+                )
+                if w is not None
+            ]
+            pixel_width, width_scores = select_pixel_width(
+                score_image, mesh_initial, profiles, candidates, mesh_config
+            )
+            if output_dir is not None and width_scores:
+                lines = [
+                    f"{w}\t{score:.4f}" + ("\t<- chosen" if w == pixel_width else "")
+                    for w, score in sorted(width_scores.items())
+                ]
+                (output_dir / "width_scores.txt").write_text("\n".join(lines) + "\n")
+
     mesh_x = homogenize_lines(
         lines_x, pixel_width, profile=profile_x, mesh_config=mesh_config
     )
@@ -473,6 +758,7 @@ def compute_mesh(
         original_img=img,
         mesh_config=mesh_config,
         profiles=profiles,
+        score_image=grey,
     )
 
 

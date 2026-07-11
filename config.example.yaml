@@ -21,6 +21,10 @@ mesh:
   snap_search_window_ratio: 0.35   # snap search window as fraction of pixel width
   snap_min_search_window: 2        # minimum snap search window in pixels
   snap_strength_threshold: 0.5     # peak must exceed this x mean profile value to snap
+  anchor_snap_window: 2            # snap detected (anchor) lines to peaks within this many pixels
+  max_axis_width_ratio: 1.8        # per-axis width estimates further apart than this -> smaller wins
+  validate_width: true             # score candidate pixel widths by within-cell variance
+  width_selection_tolerance: 1.5   # replace the estimated width only when it scores (1 + this) x the best
   profile_width_min_gaps: 5        # fewer Hough gaps than this -> profile width estimate
   split_leftover_fraction: 0.4     # leftover fraction of pixel width that earns an extra grid line (0.5 = plain rounding)
   hough:
@@ -38,3 +42,4 @@ colors:
   top_colors_limit: 8
   thumbnail_size: [160, 160]
   background_candidates: null
+  output_color_merge_distance: 12  # merge output colors closer than this (Euclidean RGB); 0 disables

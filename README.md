@@ -352,17 +352,17 @@ Here's a step-by-step overview, applied to this GPT-4o-generated blob:
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/closed_edges.png" width="80%" alt="blob closed edges"/>
 
-5) Take the [probabilistic Hough transform](https://docs.opencv.org/4.x/d3/de6/tutorial_js_houghlines.html) to get the coordinates of lines in the detected edges. Only keep lines that are close to vertical or horizontal giving some grid coordinates. Cluster lines that are closeby together.
+5) Take the [probabilistic Hough transform](https://docs.opencv.org/4.x/d3/de6/tutorial_js_houghlines.html) to get the coordinates of lines in the detected edges. Only keep lines that are close to vertical or horizontal giving some grid coordinates. Cluster lines that are closeby together, then snap each detected line to the nearest peak of a gradient projection profile (the image's gradient magnitude summed along each axis, which peaks at pixel boundaries).
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/lines.png" width="80%" alt="blob lines"/>
 
-6) Find the grid spacing by filtering outliers and taking the median of the spacings, then complete the mesh.
+6) Estimate the grid spacing per axis from the median gap between detected lines when there are enough of them, otherwise from the spacing of profile peaks or the autocorrelation period of the profile and reconcile the two axes into one pixel width (pixels are assumed square; a wildly larger axis is distrusted). The estimate is then validated by reconstruction error: candidate widths are scored by the within-cell color variance of their meshes, and the estimate is replaced only when another estimator's width scores decisively better (this catches e.g. locking on to twice the true pixel width). Finally, complete the mesh by evenly subdividing the gaps between detected lines, snapping each interpolated line to a nearby profile peak.
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/mesh.png" width="80%" alt="blob mesh"/>
 
-7) Quantize the original image to a small number of colors (see the `num_colors` tuning note above).
+7) Quantize the original image to a small number of colors (see the `num_colors` tuning note above). With `num_colors=0` original colors are preserved instead.
 
-8) In each cell specified by the mesh, choose the most common color in the cell as the color for the pixel. Recreate the original image with one pixel per cell.
+8) In each cell specified by the mesh, choose the most common color in the cell as the color for the pixel. Recreate the original image with one pixel per cell. When quantization is skipped, near-duplicate output colors are merged so flat areas collapse to a single color.
 
     - Result upscaled by a factor of $20 \times$ using nearest neighbor.
 

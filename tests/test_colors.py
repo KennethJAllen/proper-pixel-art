@@ -310,3 +310,46 @@ class TestBackgroundTransparency:
         result = np.array(colors.make_background_transparent(image))
         assert (result[0, :, 3] == 0).all()
         assert (result[1:4, 1:4, 3] == 255).all()
+
+
+class TestColorMerger:
+    def _image(self, pixel_colors: list[tuple]) -> Image.Image:
+        arr = np.array(pixel_colors, dtype=np.uint8).reshape(1, -1, 4)
+        return Image.fromarray(arr, mode="RGBA")
+
+    def test_near_colors_merge_to_most_frequent(self):
+        img = self._image(
+            [(100, 100, 100, 255)] * 5
+            + [(104, 102, 101, 255)] * 2
+            + [(200, 50, 50, 255)] * 3
+        )
+        merged = np.asarray(colors.merge_output_colors(img, distance=12))
+        pixels = {tuple(p) for p in merged.reshape(-1, 4)}
+        assert pixels == {(100, 100, 100, 255), (200, 50, 50, 255)}
+
+    def test_distinct_colors_preserved(self):
+        img = self._image([(0, 0, 0, 255), (100, 100, 100, 255), (255, 255, 255, 255)])
+        merged = colors.merge_output_colors(img, distance=12)
+        assert merged.tobytes() == img.convert("RGBA").tobytes()
+
+    def test_transparent_pixels_untouched(self):
+        img = self._image([(100, 100, 100, 255), (103, 100, 100, 0)])
+        merged = np.asarray(colors.merge_output_colors(img, distance=12))
+        assert merged[0, 1, 3] == 0
+        assert tuple(merged[0, 1, :3]) == (103, 100, 100)
+
+    def test_unseen_color_maps_to_nearest_representative(self):
+        fit_img = self._image([(100, 100, 100, 255)] * 3)
+        merger = colors.ColorMerger(distance=12).fit([fit_img])
+        apply_img = self._image([(105, 100, 100, 255), (200, 200, 200, 255)])
+        merged = np.asarray(merger.apply(apply_img))
+        assert tuple(merged[0, 0]) == (100, 100, 100, 255)  # near -> mapped
+        assert tuple(merged[0, 1]) == (200, 200, 200, 255)  # far -> unchanged
+
+    def test_mapping_is_stable_across_applies(self):
+        fit_img = self._image([(100, 100, 100, 255)] * 3 + [(107, 100, 100, 255)])
+        merger = colors.ColorMerger(distance=12).fit([fit_img])
+        frame = self._image([(107, 100, 100, 255)])
+        first = merger.apply(frame).tobytes()
+        second = merger.apply(frame).tobytes()
+        assert first == second

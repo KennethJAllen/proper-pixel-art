@@ -367,6 +367,14 @@ def pixelate(
         color_config=cfg.colors,
     )
 
+    # Merge near-duplicate output colors (skip-quantization speckle). Done
+    # before background transparency so the boundary-color match sees merged
+    # colors. The quantized path's palette is already discrete.
+    if skip_quantization and cfg.colors.output_color_merge_distance > 0:
+        result = colors.merge_output_colors(
+            result, cfg.colors.output_color_merge_distance
+        )
+
     if cfg.transparent_background:
         result = colors.make_background_transparent(result)
 

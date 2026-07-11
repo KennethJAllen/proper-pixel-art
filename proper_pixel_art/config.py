@@ -46,6 +46,14 @@ class MeshConfig:
     snap_search_window_ratio: float = 0.35  # search window as fraction of pixel width
     snap_min_search_window: int = 2  # minimum search window in pixels
     snap_strength_threshold: float = 0.5  # peak must exceed this x mean profile to snap
+    anchor_snap_window: int = 2  # snap detected (anchor) lines to peaks within this px
+    max_axis_width_ratio: float = (
+        1.8  # per-axis width estimates further apart than this -> smaller wins
+    )
+    validate_width: bool = True  # score candidate widths by within-cell variance
+    width_selection_tolerance: float = (
+        1.5  # replace the estimated width only when it scores (1 + this) x the best
+    )
     profile_width_min_gaps: int = (
         5  # fewer Hough gaps than this -> profile width estimate
     )
@@ -68,6 +76,9 @@ class ColorConfig:
     top_colors_limit: int = 8  # common colors sampled to pick a background
     thumbnail_size: tuple[int, int] = (160, 160)  # downscale size for color analysis
     background_candidates: list[RGB] | None = None  # override background palette
+    output_color_merge_distance: int = (
+        12  # merge output colors closer than this (Euclidean RGB); 0 disables
+    )
 
     def __post_init__(self) -> None:
         # bin_size is a divisor in dominant_rgb_by_binning (num_bins =

@@ -453,3 +453,41 @@ class TestVideoIo:
 
         samples = video_io.read_sample_frames(input_path, 99)
         assert len(samples) == 3
+
+
+class TestColorMergeConsistency:
+    def test_merged_palette_identical_across_frames(self, tmp_path: Path):
+        """In skip-quantization mode the fitted ColorMerger gives every frame
+        the same output palette for logically identical colors (no flicker)."""
+        rng = np.random.default_rng(7)
+        # Static background of near-identical greens (speckle source) with a
+        # moving red square, so frames differ but share the same true colors.
+        frames = []
+        for k in range(4):
+            logical = np.tile(
+                np.array(BACKGROUND, dtype=np.uint8), (LOGICAL_SIZE, LOGICAL_SIZE, 1)
+            )
+            logical[3:7, 2 + k : 6 + k] = (200, 30, 30)
+            frames.append(_noisy_upscale(logical, rng))
+        input_path = tmp_path / "anim.gif"
+        _save_gif(frames, input_path, [50] * 4)
+
+        output_path = video.pixelate_video(
+            input_path, tmp_path / "out.gif", num_colors=0
+        )
+
+        with Image.open(output_path) as result:
+            palettes = []
+            for frame_idx in range(result.n_frames):
+                result.seek(frame_idx)
+                rgba = np.asarray(result.convert("RGBA"))
+                opaque = rgba[rgba[..., 3] >= 128][:, :3]
+                palettes.append({tuple(c) for c in opaque})
+        shared = set.intersection(*palettes)
+        # The static background must map to one shared color in every frame.
+        union = set.union(*palettes)
+        background_like = {
+            c for c in union if abs(c[0] - 40) < 30 and c[1] > 150 and abs(c[2] - 60) < 30
+        }
+        assert len(background_like) == 1
+        assert background_like <= shared
