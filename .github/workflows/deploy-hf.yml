@@ -1,0 +1,57 @@
+name: Deploy to Hugging Face Space
+on:
+  push:
+    branches: [main]
+
+# Serialize deploys so two pushes can't race on the force-push.
+concurrency:
+  group: deploy-hf
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0 # full history; HF rejects shallow pushes
+          lfs: true
+      - name: Add HF-only Space config
+        # HF needs two things the repo deliberately omits so package/GitHub
+        # users never see them: a requirements.txt (deps) and README YAML
+        # frontmatter (Space title/sdk/app_file). Both are generated here and
+        # force-pushed only to the Space. `.[web]` defers to pyproject.toml so
+        # dependencies keep a single source of truth.
+        run: |
+          echo '.[web]' > requirements.txt
+
+          # Prepend the Space frontmatter to the existing README.
+          cat > README.hf.md <<'EOF'
+          ---
+          title: Proper Pixel Art
+          emoji: 🎨
+          colorFrom: blue
+          colorTo: purple
+          sdk: gradio
+          sdk_version: "6.19.0"
+          app_file: app.py
+          pinned: false
+          license: mit
+          ---
+
+          EOF
+          cat README.md >> README.hf.md
+          mv README.hf.md README.md
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f requirements.txt README.md
+          git commit -m "Add HF Space config (requirements.txt + README frontmatter)"
+      - name: Push to HF Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git push --force \
+            "https://kennethallen:$HF_TOKEN@huggingface.co/spaces/kennethallen/proper-pixel-art" \
+            HEAD:main
