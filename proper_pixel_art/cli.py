@@ -38,7 +38,11 @@ def add_pixelation_args(
         dest="num_colors",
         type=int,
         default=None,
-        help="Number of colors to quantize the image to (1-256). Use 0 to skip quantization and preserve all colors.",
+        help=(
+            "Quantize the image to this many colors (1-256, palette method). "
+            "Use 0 to preserve original colors (dominant method). Shorthand "
+            "for colors.method / colors.palette.num_colors in the YAML config."
+        ),
     )
     pixel_group.add_argument(
         "-s",

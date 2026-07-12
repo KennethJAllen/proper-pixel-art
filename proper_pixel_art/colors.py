@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageColor
+from scipy.cluster import hierarchy
 
 from proper_pixel_art.config import ColorConfig
 
@@ -127,10 +128,8 @@ def extract_and_scale_alpha(image: Image.Image, scale_factor: int = 1) -> np.nda
     Returns:
         Numpy array of alpha channel values (uint8), scaled if scale_factor != 1
     """
-    # Extract alpha channel from RGBA image
     alpha_channel = np.array(image.convert("RGBA"))[:, :, 3]
 
-    # Scale alpha channel if needed
     if scale_factor != 1:
         alpha_img = Image.fromarray(alpha_channel, mode="L")
         new_size = (alpha_img.width * scale_factor, alpha_img.height * scale_factor)
@@ -180,7 +179,7 @@ def get_cell_color_with_alpha(
 
 
 def dominant_rgb_by_binning(
-    rgb_pixels: np.ndarray, bin_size: int = _DEFAULTS.bin_size
+    rgb_pixels: np.ndarray, bin_size: int = _DEFAULTS.dominant.bin_size
 ) -> RGB:
     """
     Find the dominant color of ``rgb_pixels`` using offset binning.
@@ -240,7 +239,7 @@ def get_cell_color_skip_quantization(
     cell_pixels: np.ndarray,
     alpha_threshold: int = ALPHA_THRESHOLD,
     majority_fraction: float = _DEFAULTS.transparency_majority_fraction,
-    bin_size: int = _DEFAULTS.bin_size,
+    bin_size: int = _DEFAULTS.dominant.bin_size,
 ) -> RGBA:
     """
     Select a representative RGBA color for a cell when quantization is skipped.
@@ -276,31 +275,62 @@ def get_cell_color_skip_quantization(
     return (int(r), int(g), int(b), 255)
 
 
+# Unseen colors are matched against representatives in chunks of this many
+# colors at a time to bound the broadcast (chunk x reps x 3) array.
+_NEAREST_CHUNK = 512
+
+
 class ColorMerger:
     """Merge near-duplicate colors of small (output-resolution) images.
 
     In the skip-quantization path each cell independently picks a
     binned-median color, so logically-identical colors come out a few RGB
-    units apart (visible speckle in flat areas). This greedily clusters
-    colors by frequency: every color maps to the most frequent representative
-    within ``distance`` (Euclidean RGB), so flat areas collapse to one color.
+    units apart (visible speckle in flat areas). Colors are grouped by scipy
+    agglomerative clustering cut at ``distance`` (Euclidean RGB), and every
+    color maps to its cluster's most frequent member, so flat areas collapse
+    to one color. With the default ``"complete"`` linkage criterion every
+    cluster's diameter is bounded by ``distance``; ``"single"`` chain-merges
+    more aggressively, ``"average"`` sits in between.
+
+    Inputs with more than ``max_colors`` unique colors are fitted on the most
+    frequent ones only, bounding memory: hierarchy.linkage materializes all
+    N*(N-1)/2 pairwise distances (float64), which is unbounded in the video
+    path where noisy inputs can keep tens of thousands of unique colors
+    (~10 GB at 50k; ~64 MB at the default cap). The rare remainder snaps to
+    the nearest representative within ``distance`` at apply time, else passes
+    through unchanged.
 
     Fit/apply are split so video frames share one mapping (no flicker):
     fit once on the sampled frames, apply to every frame.
     """
 
-    def __init__(self, distance: int = _DEFAULTS.output_color_merge_distance):
+    def __init__(
+        self,
+        distance: int = _DEFAULTS.dominant.merge_distance,
+        linkage: str = _DEFAULTS.dominant.merge_linkage,
+        max_colors: int = _DEFAULTS.dominant.max_linkage_colors,
+    ):
+        self.distance = distance
         self.distance_sq = distance * distance
+        self.linkage = linkage
+        self.max_colors = max_colors
         self.representatives: list[RGB] = []
         self._mapping: dict[RGB, RGB] = {}
 
-    def _nearest_representative(self, color: RGB) -> RGB | None:
-        best, best_dist = None, self.distance_sq
-        for rep in self.representatives:
-            dist = _rgb_dist(color, rep)
-            if dist <= best_dist:
-                best, best_dist = rep, dist
-        return best
+    def _nearest_representatives(self, unseen: np.ndarray) -> np.ndarray:
+        """Map each color in ``unseen`` (K x 3 int) to the nearest
+        representative within ``distance``, else keep it unchanged."""
+        if not self.representatives:
+            return unseen
+        reps = np.array(self.representatives, dtype=np.int64)
+        result = unseen.copy()
+        for start in range(0, len(unseen), _NEAREST_CHUNK):
+            chunk = unseen[start : start + _NEAREST_CHUNK]
+            dist_sq = ((chunk[:, None, :] - reps[None, :, :]) ** 2).sum(axis=2)
+            nearest = np.argmin(dist_sq, axis=1)
+            within = dist_sq[np.arange(len(chunk)), nearest] <= self.distance_sq
+            result[start : start + _NEAREST_CHUNK][within] = reps[nearest[within]]
+        return result
 
     def fit(self, images: list[Image.Image]) -> "ColorMerger":
         """Build the color mapping from the opaque pixels of small images."""
@@ -310,14 +340,41 @@ class ColorMerger:
             # int() the components: uint8 tuples would overflow in _rgb_dist
             opaque = pixels[pixels[:, 3] >= ALPHA_THRESHOLD][:, :3].astype(int)
             counts.update(map(tuple, opaque))
-        for color, _ in counts.most_common():
-            rep = self._nearest_representative(color)
-            if rep is None:
-                self.representatives.append(color)
-                self._mapping[color] = color
-            else:
-                self._mapping[color] = rep
+        self._fit_linkage(counts)
         return self
+
+    def _fit_linkage(self, counts: Counter) -> None:
+        """Agglomerative clustering cut at ``distance``; each cluster maps to
+        its most frequent member color."""
+        unique_colors = list(counts)
+        if not unique_colors:
+            return
+        if len(unique_colors) == 1:  # scipy linkage needs >= 2 observations
+            color = unique_colors[0]
+            self.representatives.append(color)
+            self._mapping[color] = color
+            return
+        if len(unique_colors) > self.max_colors:
+            unique_colors = sorted(counts, key=lambda c: (counts[c], c), reverse=True)[
+                : self.max_colors
+            ]
+        merge_tree = hierarchy.linkage(
+            np.array(unique_colors, dtype=float),
+            method=self.linkage,
+            metric="euclidean",
+        )
+        labels = hierarchy.fcluster(merge_tree, t=self.distance, criterion="distance")
+        clusters: dict[int, list[RGB]] = {}
+        for color, label in zip(unique_colors, labels, strict=True):
+            clusters.setdefault(int(label), []).append(color)
+        for label in sorted(clusters):
+            members = clusters[label]
+            # Tie-break equal counts by color tuple so video mappings are
+            # reproducible across runs.
+            rep = max(members, key=lambda c: (counts[c], c))
+            self.representatives.append(rep)
+            for color in members:
+                self._mapping[color] = rep
 
     def apply(self, image: Image.Image) -> Image.Image:
         """Remap an image's opaque colors through the fitted mapping. Colors
@@ -331,31 +388,45 @@ class ColorMerger:
             pixels[opaque, :3].astype(int), axis=0, return_inverse=True
         )
         remapped = np.empty_like(unique)
+        unseen_indices = []
         for i, color in enumerate(map(tuple, unique)):
             mapped = self._mapping.get(color)
             if mapped is None:
-                mapped = self._nearest_representative(color) or color
+                unseen_indices.append(i)
+            else:
+                remapped[i] = mapped
+        if unseen_indices:
+            unseen = unique[unseen_indices]
+            resolved = self._nearest_representatives(unseen)
+            remapped[unseen_indices] = resolved
+            # Cache so later frames resolve the same colors identically.
+            for color, mapped in zip(
+                map(tuple, unseen), map(tuple, resolved), strict=True
+            ):
                 self._mapping[color] = mapped
-            remapped[i] = mapped
         pixels[opaque, :3] = remapped[inverse]
         return Image.fromarray(pixels.reshape(height, width, 4), mode="RGBA")
 
 
 def merge_output_colors(
-    image: Image.Image, distance: int = _DEFAULTS.output_color_merge_distance
+    image: Image.Image,
+    distance: int = _DEFAULTS.dominant.merge_distance,
+    linkage: str = _DEFAULTS.dominant.merge_linkage,
+    max_colors: int = _DEFAULTS.dominant.max_linkage_colors,
 ) -> Image.Image:
     """Fit-and-apply :class:`ColorMerger` convenience for a single image."""
-    return ColorMerger(distance).fit([image]).apply(image)
+    merger = ColorMerger(distance, linkage=linkage, max_colors=max_colors)
+    return merger.fit([image]).apply(image)
 
 
 def palette_img(
     image: Image.Image,
-    num_colors: int = 16,
     color_config: ColorConfig | None = None,
     output_dir: Path | None = None,
 ) -> Image.Image:
     """
-    Quantize the image to at most num_colors and return the paletted image.
+    Quantize the image to at most ``color_config.palette.num_colors`` and
+    return the paletted image.
     Saves the quantized image to output_dir if it is not None.
 
     The default MAXCOVERAGE method gives the best results overall, though some
@@ -372,8 +443,12 @@ def palette_img(
         thumbnail_size=color_config.thumbnail_size,
         background_candidates=color_config.background_candidates,
     )
+    palette = color_config.palette
     quantized_img = image_rgb.quantize(
-        colors=num_colors, method=color_config.quantize, dither=Image.Dither.NONE
+        colors=palette.num_colors,
+        method=palette.quantize,
+        dither=palette.dither_mode,
+        kmeans=palette.kmeans,
     )
     if output_dir is not None:
         quantized_img.save(output_dir / "quantized_original.png")

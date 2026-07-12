@@ -346,7 +346,12 @@ class TestConfigSupport:
         arrays = _make_noisy_arrays(3)
         input_path = tmp_path / "anim.gif"
         _save_gif(arrays, input_path, [50] * 3)
-        cfg = PixelateConfig.from_dict({"num_colors": 8, "scale_result": 4})
+        cfg = PixelateConfig.from_dict(
+            {
+                "colors": {"method": "palette", "palette": {"num_colors": 8}},
+                "scale_result": 4,
+            }
+        )
 
         output_path = video.pixelate_video(input_path, tmp_path / "out.gif", config=cfg)
 
@@ -359,7 +364,12 @@ class TestConfigSupport:
         arrays = _make_noisy_arrays(3)
         input_path = tmp_path / "anim.gif"
         _save_gif(arrays, input_path, [50] * 3)
-        cfg = PixelateConfig.from_dict({"num_colors": 8, "scale_result": 4})
+        cfg = PixelateConfig.from_dict(
+            {
+                "colors": {"method": "palette", "palette": {"num_colors": 8}},
+                "scale_result": 4,
+            }
+        )
 
         output_path = video.pixelate_video(
             input_path, tmp_path / "out.gif", num_colors=2, scale_result=2, config=cfg
@@ -382,9 +392,12 @@ class TestConfigSupport:
         _save_gif(arrays, input_path, [50] * 3)
         cfg = PixelateConfig.from_dict(
             {
-                "num_colors": 8,
                 "mesh": {"closure_kernel_size": 6},
-                "colors": {"top_colors_limit": 4},
+                "colors": {
+                    "method": "palette",
+                    "top_colors_limit": 4,
+                    "palette": {"num_colors": 8},
+                },
             }
         )
         captured = {}

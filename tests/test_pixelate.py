@@ -68,7 +68,7 @@ def _downsample_reference(
                 cell,
                 alpha_threshold=color_config.alpha_threshold,
                 majority_fraction=color_config.transparency_majority_fraction,
-                bin_size=color_config.bin_size,
+                bin_size=color_config.dominant.bin_size,
             )
         elif original_alpha is not None:
             cell_alpha = original_alpha[y0:y1, x0:x1]

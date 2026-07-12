@@ -4,7 +4,6 @@
 #   PixelateConfig.from_yaml("config.yaml")   # from Python
 #   ppa input.png --config config.yaml        # from the CLI (flags override)
 
-num_colors: 0
 initial_upscale_factor: 2
 scale_result: 1
 transparent_background: false
@@ -35,11 +34,19 @@ mesh:
     max_line_gap: 10
 
 colors:
+  method: dominant                 # dominant (preserve original colors) or palette (quantize)
   alpha_threshold: 128
   transparency_majority_fraction: 0.5
-  quantize_method: MAXCOVERAGE  # MAXCOVERAGE, FASTOCTREE, MEDIANCUT, LIBIMAGEQUANT
-  bin_size: 52
   top_colors_limit: 8
   thumbnail_size: [160, 160]
   background_candidates: null
-  output_color_merge_distance: 12  # merge output colors closer than this (Euclidean RGB); 0 disables
+  palette:                         # used when method is palette
+    num_colors: 16                 # palette size (1-256)
+    quantize_method: MAXCOVERAGE   # MAXCOVERAGE, FASTOCTREE, MEDIANCUT, LIBIMAGEQUANT
+    dither: NONE                   # NONE, ORDERED, RASTERIZE, FLOYDSTEINBERG
+    kmeans: 0                      # k-means refinement iterations; 0 disables
+  dominant:                        # used when method is dominant
+    bin_size: 52                   # RGB bin size for the per-cell dominant color
+    merge_distance: 12             # merge output colors closer than this (Euclidean RGB); 0 disables
+    merge_linkage: complete        # linkage criterion: complete, average, or single
+    max_linkage_colors: 4096       # cap on unique colors fitted by the merge clustering

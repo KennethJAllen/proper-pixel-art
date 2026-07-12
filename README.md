@@ -197,7 +197,7 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 | --------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | INPUT (positional)                | Source image, video, or GIF in pixel-art style                                                            |
 | `-o`, `--output` `<path>`         | Output directory or file path for result. (default: '.')                                                  |
-| `-c`, `--colors` `<int>`          | Number of colors for output (1-256). Use 0 to skip quantization and preserve all colors. May need to try a few different values. (default 0) |
+| `-c`, `--colors` `<int>`          | Quantize the output to this many colors (1-256, palette method). Use 0 to preserve original colors (dominant method, the default). May need to try a few different values. |
 | `-s`, `--scale-result` `<int>`    | Width/height of each "pixel" in the output. 1 = no scaling. (default: 1)                                  |
 | `-t`, `--transparent`             | Output with transparent background. (default: off)                                                        |
 | `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
@@ -259,7 +259,7 @@ pixelate_video('input.mp4', 'output.gif', num_colors=16)
 
 #### Parameters
 
-The keyword arguments mirror the CLI options table above: `num_colors` (`-c`), `scale_result` (`-s`), `transparent_background` (`-t`), `initial_upscale_factor` (`-u`), `pixel_width` (`-w`), and `intermediate_dir` (`--intermediate-dir`). In addition:
+The keyword arguments mirror the CLI options table above: `num_colors` (`-c`, shorthand for the config's `colors.method` / `colors.palette.num_colors`), `scale_result` (`-s`), `transparent_background` (`-t`), `initial_upscale_factor` (`-u`), `pixel_width` (`-w`), and `intermediate_dir` (`--intermediate-dir`). In addition:
 
 - `image` : `PIL.Image.Image` — the image to pixelate.
 - `config` : `PixelateConfig | None` — a bundle of every tunable parameter, loaded with `PixelateConfig.from_yaml(path)` (see [Configuration file](#configuration-file)). Explicit arguments override matching values in `config`.
@@ -270,7 +270,7 @@ A PIL image with true pixel resolution and quantized colors.
 
 ### Configuration file
 
-All tunable parameters can be collected in a YAML file so you can fine-tune the algorithm without changing code — including the deeper mesh-detection (Canny, Hough, line clustering) and color (alpha/transparency thresholds, quantization method, color binning) settings not exposed as CLI flags or direct arguments. See [`config.example.yaml`](config.example.yaml) for the full list of keys with their defaults. Any key you omit falls back to the default, so partial files are fine.
+All tunable parameters can be collected in a YAML file so you can fine-tune the algorithm without changing code — including the deeper mesh-detection (Canny, Hough, line clustering) and color settings (the `colors.method` quantization-method selector with its `palette` and `dominant` sub-sections, plus alpha/transparency thresholds) not exposed as CLI flags or direct arguments. See [`config.example.yaml`](config.example.yaml) for the full list of keys with their defaults. Any key you omit falls back to the default, so partial files are fine.
 
 ```python
 from PIL import Image
@@ -285,7 +285,7 @@ From the CLI, pass `--config`. Flags given explicitly override values from the f
 
 ```bash
 ppa input.png --config config.yaml      # use the file
-ppa input.png --config config.yaml -c 8 # but override num_colors to 8
+ppa input.png --config config.yaml -c 8 # but override to an 8-color palette
 ```
 
 ## Real Images To Pixel Art
@@ -340,9 +340,9 @@ Here's a step-by-step overview, applied to this GPT-4o-generated blob:
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/mesh.png" width="80%" alt="blob mesh"/>
 
-7) Quantize the original image to a small number of colors (see the `num_colors` tuning note above). With `num_colors=0` original colors are preserved instead.
+7) Process the colors with one of two methods, selected by `colors.method`: `palette` quantizes the original image to a small number of colors (see the `--colors` tuning note above), while `dominant` (the default, `-c 0`) preserves the original colors.
 
-8) In each cell specified by the mesh, choose the most common color in the cell as the color for the pixel. Recreate the original image with one pixel per cell. When quantization is skipped, near-duplicate output colors are merged so flat areas collapse to a single color.
+8) In each cell specified by the mesh, choose a representative color for the pixel: the most common quantized color (palette method) or the dominant color by offset binning (dominant method). Recreate the original image with one pixel per cell. With the dominant method, near-duplicate output colors are then merged (agglomerative clustering with a distance cutoff) so flat areas collapse to a single color.
 
     - Result upscaled by a factor of $20 \times$ using nearest neighbor.
 

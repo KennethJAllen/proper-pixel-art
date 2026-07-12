@@ -353,3 +353,69 @@ class TestColorMerger:
         first = merger.apply(frame).tobytes()
         second = merger.apply(frame).tobytes()
         assert first == second
+
+    # Three colors on a line, 11 and 10 apart: complete linkage bounds cluster
+    # diameter by the distance, so it clusters the two close colors and keeps
+    # the far one separate; single linkage chain-merges the whole run.
+    _CHAIN = (
+        [(100, 100, 100, 255)] * 5
+        + [(111, 100, 100, 255)] * 3
+        + [(121, 100, 100, 255)] * 2
+    )
+
+    def test_complete_linkage_bounds_cluster_diameter(self):
+        img = self._image(self._CHAIN)
+        merged = np.asarray(colors.merge_output_colors(img, distance=12))
+        pixels = {tuple(p) for p in merged.reshape(-1, 4)}
+        assert pixels == {(100, 100, 100, 255), (111, 100, 100, 255)}
+
+    def test_single_linkage_chain_merges(self):
+        img = self._image(self._CHAIN)
+        merged = np.asarray(
+            colors.merge_output_colors(img, distance=12, linkage="single")
+        )
+        pixels = {tuple(p) for p in merged.reshape(-1, 4)}
+        assert pixels == {(100, 100, 100, 255)}
+
+    def test_high_unique_color_count_stays_bounded(self):
+        """Regression: noisy video frames can have tens of thousands of unique
+        colors; linkage on all of them would allocate an O(N^2) distance
+        matrix (~10 GB at 50k). The fit must cap the observation count and
+        still merge frequent near-duplicate colors."""
+        rng = np.random.default_rng(42)
+        noise = [(*c, 255) for c in rng.integers(0, 256, size=(50_000, 3)).tolist()]
+        # Planted frequent near-duplicates that must still merge.
+        flat = [(10, 10, 10, 255)] * 300 + [(14, 10, 10, 255)] * 200
+        img = self._image(flat + noise)
+
+        merger = colors.ColorMerger(distance=12).fit([img])
+
+        assert len(merger.representatives) <= 4096
+        merged = np.asarray(merger.apply(img))
+        pixels = merged.reshape(-1, 4)
+        assert (pixels[: len(flat), :3] == (10, 10, 10)).all()
+
+    def test_max_colors_caps_fitted_representatives(self):
+        """A smaller max_colors cap fits only the most frequent colors; the
+        capped-out rare colors still resolve via the nearest-representative
+        path when close enough."""
+        frequent = [(10, 10, 10, 255)] * 50 + [(200, 200, 200, 255)] * 40
+        rare = [(14, 10, 10, 255), (90, 90, 90, 255)]  # near / far from (10,10,10)
+        img = self._image(frequent + rare)
+
+        merger = colors.ColorMerger(distance=12, max_colors=2).fit([img])
+
+        assert len(merger.representatives) <= 2
+        merged = np.asarray(merger.apply(img)).reshape(-1, 4)
+        assert tuple(merged[len(frequent), :3]) == (10, 10, 10)  # near rare snapped
+        assert tuple(merged[len(frequent) + 1, :3]) == (90, 90, 90)  # far unchanged
+
+    def test_single_unique_color(self):
+        img = self._image([(100, 100, 100, 255)] * 4)
+        merged = colors.merge_output_colors(img, distance=12)
+        assert merged.tobytes() == img.convert("RGBA").tobytes()
+
+    def test_fully_transparent_image(self):
+        img = self._image([(100, 100, 100, 0), (50, 50, 50, 0)])
+        merged = colors.merge_output_colors(img, distance=12)
+        assert merged.tobytes() == img.convert("RGBA").tobytes()

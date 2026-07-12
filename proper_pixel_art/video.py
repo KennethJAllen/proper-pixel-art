@@ -21,7 +21,12 @@ from PIL import Image
 from tqdm import tqdm
 
 from proper_pixel_art import colors, mesh, utils, video_io
-from proper_pixel_art.config import ColorConfig, MeshConfig, PixelateConfig
+from proper_pixel_art.config import (
+    ColorConfig,
+    MeshConfig,
+    PixelateConfig,
+    with_num_colors,
+)
 from proper_pixel_art.pixelate import (
     build_cell_map,
     downsample_binned,
@@ -183,7 +188,6 @@ def compute_video_mesh(
 
 def build_global_palette(
     frames: list[Image.Image],
-    num_colors: int,
     color_config: ColorConfig | None = None,
     output_dir: Path | None = None,
 ) -> tuple[Image.Image, str]:
@@ -222,8 +226,12 @@ def build_global_palette(
         mode="RGB",
         background_hex=background_hex,
     )
+    palette = color_config.palette
     palette_img = clamped.quantize(
-        colors=num_colors, method=color_config.quantize, dither=Image.Dither.NONE
+        colors=palette.num_colors,
+        method=palette.quantize,
+        dither=palette.dither_mode,
+        kmeans=palette.kmeans,
     )
     if output_dir is not None:
         palette_img.save(output_dir / "quantized_original.png")
@@ -246,7 +254,6 @@ class FramePipeline:
         mesh_lines: Mesh,
         upscale_factor: int,
         frame_size: tuple[int, int],
-        num_colors: int | None,
         sample_frames: list[Image.Image],
         transparent_background: bool = False,
         scale_result: int | None = None,
@@ -258,7 +265,7 @@ class FramePipeline:
         self.color_config = color_config or ColorConfig()
         self.transparent_background = transparent_background
         self.scale_result = scale_result
-        self.skip_quantization = not num_colors  # 0 / None -> skip
+        self.skip_quantization = self.color_config.method == "dominant"
 
         self.cell_map = build_cell_map(mesh_lines, (height * factor, width * factor))
         self._row_idx = np.arange(height * factor) // factor
@@ -271,7 +278,6 @@ class FramePipeline:
         else:
             self.palette_img, self.background_hex = build_global_palette(
                 sample_frames,
-                num_colors,
                 color_config=self.color_config,
                 output_dir=intermediate_dir,
             )
@@ -282,10 +288,14 @@ class FramePipeline:
         # One merger fitted on the sample frames gives every frame the same
         # color mapping, so merging cannot flicker between frames.
         self.color_merger: colors.ColorMerger | None = None
-        merge_distance = self.color_config.output_color_merge_distance
-        if self.skip_quantization and merge_distance > 0:
+        dominant = self.color_config.dominant
+        if self.skip_quantization and dominant.merge_distance > 0:
             small_samples = [self._downsample_frame(f) for f in sample_frames]
-            self.color_merger = colors.ColorMerger(merge_distance).fit(small_samples)
+            self.color_merger = colors.ColorMerger(
+                dominant.merge_distance,
+                linkage=dominant.merge_linkage,
+                max_colors=dominant.max_linkage_colors,
+            ).fit(small_samples)
 
         self.background_color: colors.RGB | None = None
         if transparent_background:
@@ -311,7 +321,8 @@ class FramePipeline:
                 background_hex=self.background_hex,
             )
             quantized = clamped.quantize(
-                palette=self.palette_img, dither=Image.Dither.NONE
+                palette=self.palette_img,
+                dither=self.color_config.palette.dither_mode,
             )
             palette_idx = self._upscaled(np.asarray(quantized))
             alpha = self._upscaled(np.asarray(frame_rgba)[..., 3])
@@ -364,16 +375,19 @@ def pixelate_frame(
 
     Convenience wrapper building a one-off :class:`FramePipeline`; when
     processing many frames, build the pipeline once instead.
+    ``num_colors`` is the usual shorthand: >= 1 selects the palette method
+    with that palette size, 0 / None selects the dominant method.
     """
     frame_rgba = frame.convert("RGBA")
+    color_config = with_num_colors(PixelateConfig(), num_colors or 0).colors
     pipeline = FramePipeline(
         mesh_lines,
         upscale_factor,
         frame_rgba.size,
-        num_colors,
         sample_frames=[frame_rgba],
         transparent_background=transparent_background,
         scale_result=scale_result,
+        color_config=color_config,
     )
     return pipeline.process(frame_rgba)
 
@@ -451,7 +465,9 @@ def _write_gif(
         [np.asarray(f)[::stride, ::stride] for f in rgb_frames], axis=0
     )
     global_palette = Image.fromarray(mosaic_array, mode="RGB").quantize(
-        colors=max_colors, method=color_config.quantize, dither=Image.Dither.NONE
+        colors=max_colors,
+        method=color_config.palette.quantize,
+        dither=Image.Dither.NONE,
     )
     palette_data = global_palette.getpalette()
     palette_data = palette_data + [0] * (768 - len(palette_data))
@@ -509,7 +525,9 @@ def pixelate_video(
     Args:
         input_path: Path to input video/GIF
         output_path: Path for output file (directory or file)
-        num_colors: Number of colors for quantization (0 to skip)
+        num_colors: Shorthand for colors.method: >= 1 selects the palette
+            method with that palette size, 0 selects the dominant method
+            (original colors preserved)
         scale_result: Upscale result by this factor
         transparent_background: Make background transparent
         pixel_width: Override automatic pixel width detection (0 = auto)
@@ -535,7 +553,6 @@ def pixelate_video(
     overrides = {
         name: value
         for name, value in (
-            ("num_colors", num_colors),
             ("initial_upscale_factor", initial_upscale_factor),
             ("scale_result", scale_result),
             ("transparent_background", transparent_background),
@@ -545,6 +562,8 @@ def pixelate_video(
     }
     if overrides:
         cfg = replace(cfg, **overrides)
+    if num_colors is not None:
+        cfg = with_num_colors(cfg, num_colors)
 
     # Resolve output format: explicit argument, then output extension,
     # otherwise GIF regardless of the input format.
@@ -582,7 +601,6 @@ def pixelate_video(
         mesh_lines,
         upscale_factor,
         info.size,
-        cfg.num_colors,
         sample_frames,
         transparent_background=cfg.transparent_background,
         scale_result=cfg.scale_result,

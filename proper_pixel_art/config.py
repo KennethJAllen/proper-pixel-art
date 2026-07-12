@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import yaml
-from PIL.Image import Quantize
+from PIL.Image import Dither, Quantize
 
 RGB = tuple[int, int, int]
 
@@ -64,31 +64,23 @@ class MeshConfig:
 
 
 @dataclass
-class ColorConfig:
-    """Parameters controlling color selection, quantization and transparency."""
+class PaletteConfig:
+    """Parameters for the palette-quantization method (``method: palette``).
 
-    alpha_threshold: int = 128  # alpha >= this is opaque (0-255)
-    transparency_majority_fraction: float = (
-        0.5  # cell transparent if >= this fraction is transparent
-    )
+    The image is quantized to ``num_colors`` with PIL's ``Image.quantize`` and
+    each mesh cell takes its most common palette color.
+    """
+
+    num_colors: int = 16  # palette size (1-256)
     quantize_method: str = "MAXCOVERAGE"  # PIL.Image.Quantize member name
-    bin_size: int = 52  # RGB bin size for skip-quantization dominant color
-    top_colors_limit: int = 8  # common colors sampled to pick a background
-    thumbnail_size: tuple[int, int] = (160, 160)  # downscale size for color analysis
-    background_candidates: list[RGB] | None = None  # override background palette
-    output_color_merge_distance: int = (
-        12  # merge output colors closer than this (Euclidean RGB); 0 disables
-    )
+    dither: str = "NONE"  # PIL.Image.Dither member name (NONE, FLOYDSTEINBERG, ...)
+    kmeans: int = 0  # PIL quantize() k-means refinement iterations; 0 disables
 
     def __post_init__(self) -> None:
-        # bin_size is a divisor in dominant_rgb_by_binning (num_bins =
-        # 255 // bin_size + 1); 0 would raise an opaque ZeroDivisionError later.
-        if self.bin_size < 1:
-            raise ValueError(f"bin_size must be >= 1, got {self.bin_size}.")
-        # Normalize YAML lists-of-lists into RGB tuples. _build skips this field
-        # because its default is None rather than a tuple.
-        if self.background_candidates is not None:
-            self.background_candidates = [tuple(c) for c in self.background_candidates]
+        if not 1 <= self.num_colors <= 256:
+            raise ValueError(f"num_colors must be in 1-256, got {self.num_colors}.")
+        if self.kmeans < 0:
+            raise ValueError(f"kmeans must be >= 0, got {self.kmeans}.")
 
     @property
     def quantize(self) -> int:
@@ -102,18 +94,100 @@ class ColorConfig:
                 f"Valid options: {valid}."
             ) from exc
 
+    @property
+    def dither_mode(self) -> int:
+        """Resolve ``dither`` to a ``PIL.Image.Dither`` value."""
+        try:
+            return getattr(Dither, self.dither)
+        except AttributeError as exc:
+            valid = ", ".join(d.name for d in Dither)
+            raise ValueError(
+                f"Unknown dither {self.dither!r}. Valid options: {valid}."
+            ) from exc
+
+
+@dataclass
+class DominantConfig:
+    """Parameters for the dominant-color method (``method: dominant``).
+
+    Original colors are preserved: each mesh cell picks its dominant color via
+    offset binning, then near-duplicate output colors are merged by
+    agglomerative clustering so flat areas collapse to a single color.
+    """
+
+    bin_size: int = 52  # RGB bin size for the per-cell dominant color
+    merge_distance: int = (
+        12  # merge output colors closer than this (Euclidean RGB); 0 disables
+    )
+    merge_linkage: str = (
+        "complete"  # scipy linkage criterion: "complete", "average" or "single"
+    )
+    max_linkage_colors: int = (
+        4096  # cap on unique colors fitted by clustering (bounds memory)
+    )
+
+    def __post_init__(self) -> None:
+        # bin_size is a divisor in dominant_rgb_by_binning (num_bins =
+        # 255 // bin_size + 1); 0 would raise an opaque ZeroDivisionError later.
+        if self.bin_size < 1:
+            raise ValueError(f"bin_size must be >= 1, got {self.bin_size}.")
+        # Restrict to criteria whose cut height is in Euclidean RGB units, so
+        # merge_distance keeps its meaning (ward/centroid/median cut heights
+        # are not plain distances).
+        if self.merge_linkage not in ("complete", "average", "single"):
+            raise ValueError(
+                f"Unknown merge_linkage {self.merge_linkage!r}. "
+                f"Valid options: complete, average, single."
+            )
+        # scipy linkage needs at least 2 observations to fit anything.
+        if self.max_linkage_colors < 2:
+            raise ValueError(
+                f"max_linkage_colors must be >= 2, got {self.max_linkage_colors}."
+            )
+
+
+@dataclass
+class ColorConfig:
+    """Parameters controlling color selection, quantization and transparency.
+
+    ``method`` selects between the two quantization methods, whose specific
+    knobs live in the ``palette`` and ``dominant`` sub-configs; the remaining
+    fields apply to both.
+    """
+
+    method: str = "dominant"  # "dominant" (preserve colors) or "palette" (quantize)
+    alpha_threshold: int = 128  # alpha >= this is opaque (0-255)
+    transparency_majority_fraction: float = (
+        0.5  # cell transparent if >= this fraction is transparent
+    )
+    top_colors_limit: int = 8  # common colors sampled to pick a background
+    thumbnail_size: tuple[int, int] = (160, 160)  # downscale size for color analysis
+    background_candidates: list[RGB] | None = None  # override background palette
+    palette: "PaletteConfig" = field(default_factory=PaletteConfig)
+    dominant: "DominantConfig" = field(default_factory=DominantConfig)
+
+    def __post_init__(self) -> None:
+        if self.method not in ("dominant", "palette"):
+            raise ValueError(
+                f"Unknown color method {self.method!r}. "
+                f"Valid options: dominant, palette."
+            )
+        # Normalize YAML lists-of-lists into RGB tuples. _build skips this field
+        # because its default is None rather than a tuple.
+        if self.background_candidates is not None:
+            self.background_candidates = [tuple(c) for c in self.background_candidates]
+
 
 @dataclass
 class PixelateConfig:
     """Top-level configuration for :func:`proper_pixel_art.pixelate.pixelate`.
 
-    Three fields use numeric sentinels rather than ``None`` for their special
+    Two fields use numeric sentinels rather than ``None`` for their special
     states, leaving ``None`` free to mean "not provided" in ``pixelate`` kwargs:
-    ``num_colors=0`` skips quantization, ``scale_result=1`` means no scaling, and
-    ``pixel_width=0`` auto-detects the pixel width.
+    ``scale_result=1`` means no scaling and ``pixel_width=0`` auto-detects the
+    pixel width. The quantization method is selected by ``colors.method``.
     """
 
-    num_colors: int = 0
     initial_upscale_factor: int = 2
     scale_result: int = 1
     transparent_background: bool = False
@@ -140,10 +214,35 @@ class PixelateConfig:
         mesh_data = dict(data.pop("mesh", None) or {})
         colors_data = dict(data.pop("colors", None) or {})
         hough_data = dict(mesh_data.pop("hough", None) or {})
+        palette_data = dict(colors_data.pop("palette", None) or {})
+        dominant_data = dict(colors_data.pop("dominant", None) or {})
 
         mesh = _build(MeshConfig, mesh_data, hough=_build(HoughConfig, hough_data))
-        colors = _build(ColorConfig, colors_data)
+        colors = _build(
+            ColorConfig,
+            colors_data,
+            palette=_build(PaletteConfig, palette_data),
+            dominant=_build(DominantConfig, dominant_data),
+        )
         return _build(cls, data, mesh=mesh, colors=colors)
+
+
+def with_num_colors(cfg: PixelateConfig, num_colors: int) -> PixelateConfig:
+    """Return a copy of ``cfg`` with the ``num_colors`` shorthand applied.
+
+    ``num_colors > 0`` selects the palette method with that palette size;
+    ``num_colors == 0`` selects the dominant method. This is the mapping behind
+    the CLI ``-c`` flag and the ``pixelate(num_colors=...)`` kwarg.
+    """
+    if num_colors:
+        colors = replace(
+            cfg.colors,
+            method="palette",
+            palette=replace(cfg.colors.palette, num_colors=num_colors),
+        )
+    else:
+        colors = replace(cfg.colors, method="dominant")
+    return replace(cfg, colors=colors)
 
 
 def _build(dc_type, data: dict, **nested):

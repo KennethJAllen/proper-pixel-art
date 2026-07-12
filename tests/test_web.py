@@ -113,7 +113,9 @@ def test_build_config_maps_all_ui_values() -> None:
         )
     )
 
-    assert (cfg.num_colors, cfg.scale_result, cfg.initial_upscale_factor) == (16, 3, 2)
+    assert (cfg.scale_result, cfg.initial_upscale_factor) == (3, 2)
+    assert cfg.colors.method == "palette"
+    assert cfg.colors.palette.num_colors == 16
     assert cfg.pixel_width == 5
     assert cfg.transparent_background is True
 
@@ -123,9 +125,17 @@ def test_build_config_maps_all_ui_values() -> None:
     assert cfg.mesh.hough.rho == 1.5
     assert cfg.mesh.hough.threshold == 120
 
-    assert cfg.colors.quantize_method == "MEDIANCUT"
-    assert cfg.colors.bin_size == 30
+    assert cfg.colors.palette.quantize_method == "MEDIANCUT"
+    assert cfg.colors.dominant.bin_size == 30
     assert cfg.colors.thumbnail_size == (120, 140)
+
+
+def test_build_config_zero_colors_selects_dominant_method() -> None:
+    """Slider value 0 keeps the CLI shorthand semantics: dominant method,
+    palette sub-config left at a valid default size."""
+    cfg = web.build_config(**_config_kwargs(num_colors=0))
+    assert cfg.colors.method == "dominant"
+    assert cfg.colors.palette.num_colors >= 1
 
 
 def test_build_config_coerces_types() -> None:
@@ -136,12 +146,12 @@ def test_build_config_coerces_types() -> None:
             num_colors=16.0, canny_low=40.0, canny_high=210.0, bin_size=52.0
         )
     )
-    assert isinstance(cfg.num_colors, int)
+    assert isinstance(cfg.colors.palette.num_colors, int)
     assert isinstance(cfg.mesh.canny_thresholds, tuple)
     assert all(isinstance(v, int) for v in cfg.mesh.canny_thresholds)
-    assert isinstance(cfg.colors.bin_size, int)
+    assert isinstance(cfg.colors.dominant.bin_size, int)
     # quantize_method resolves to a real PIL.Image.Quantize value without error.
-    assert cfg.colors.quantize is not None
+    assert cfg.colors.palette.quantize is not None
 
 
 # --- process() dispatch + preview routing (needs the web extra) -----------

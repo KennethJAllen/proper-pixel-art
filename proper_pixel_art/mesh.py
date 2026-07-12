@@ -41,7 +41,6 @@ def cluster_lines(lines: Lines, threshold: int = _DEFAULTS.cluster_threshold) ->
             clusters[-1].append(p)
         else:
             clusters.append([p])
-    # use the median of each cluster
     return [int(np.median(cluster)) for cluster in clusters]
 
 
@@ -751,7 +750,6 @@ def compute_mesh(
     closed_edges = close_edges(edges, kernel_size=mesh_config.closure_kernel_size)
     profiles = compute_gradient_profiles(grey)
 
-    # Save raw edges debug image (before closing) if output_dir is set
     if output_dir is not None:
         edges_img = Image.fromarray(edges, mode="L")
         edges_img.save(output_dir / "edges.png")

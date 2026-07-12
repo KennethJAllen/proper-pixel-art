@@ -168,7 +168,9 @@ def test_video_main_with_config_yaml(
     """--config values are applied end to end (scale_result is observable),
     and --intermediate-dir produces debug images."""
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("num_colors: 8\nscale_result: 2\n")
+    config_path.write_text(
+        "colors:\n  method: palette\n  palette:\n    num_colors: 8\nscale_result: 2\n"
+    )
     out_path = tmp_path / "result.gif"
     intermediate_dir = tmp_path / "intermediate"
 

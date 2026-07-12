@@ -66,10 +66,13 @@ def build_config(
     Gradio sliders/numbers hand back floats; integer-typed config fields are
     cast so downstream indexing/quantization sees real ints. ``from_dict``
     validates the keys and coerces the list fields into tuples.
+
+    The "Colors" slider keeps the CLI ``-c`` shorthand semantics: 0 selects
+    the dominant method (original colors preserved), >= 1 selects the palette
+    method with that palette size.
     """
     return PixelateConfig.from_dict(
         {
-            "num_colors": int(num_colors),
             "scale_result": int(scale_result),
             "initial_upscale_factor": int(initial_upscale_factor),
             "pixel_width": int(pixel_width),
@@ -90,12 +93,20 @@ def build_config(
                 },
             },
             "colors": {
+                "method": "palette" if int(num_colors) else "dominant",
                 "alpha_threshold": int(alpha_threshold),
                 "transparency_majority_fraction": float(transparency_majority_fraction),
-                "quantize_method": quantize_method,
-                "bin_size": int(bin_size),
                 "top_colors_limit": int(top_colors_limit),
                 "thumbnail_size": [int(thumbnail_w), int(thumbnail_h)],
+                "palette": {
+                    # A palette size of 0 means "dominant method"; keep the
+                    # sub-config valid by falling back to its default size.
+                    "num_colors": int(num_colors) or _COLOR.palette.num_colors,
+                    "quantize_method": quantize_method,
+                },
+                "dominant": {
+                    "bin_size": int(bin_size),
+                },
             },
         }
     )
@@ -213,9 +224,9 @@ def create_demo():
             num_colors = gr.Slider(
                 0,
                 64,
-                value=_DEFAULTS.num_colors,
+                value=(_COLOR.palette.num_colors if _COLOR.method == "palette" else 0),
                 step=1,
-                label="Colors (0 = skip quantization)",
+                label="Colors (0 = keep original colors)",
             )
             scale = gr.Slider(
                 1, 20, value=_DEFAULTS.scale_result, step=1, label="Scale Result"
@@ -335,11 +346,11 @@ def create_demo():
             with gr.Row():
                 quantize_method = gr.Dropdown(
                     choices=QUANTIZE_METHODS,
-                    value=_COLOR.quantize_method,
+                    value=_COLOR.palette.quantize_method,
                     label="Quantize Method",
                 )
                 bin_size = gr.Slider(
-                    1, 255, value=_COLOR.bin_size, step=1, label="Bin Size"
+                    1, 255, value=_COLOR.dominant.bin_size, step=1, label="Bin Size"
                 )
                 top_colors_limit = gr.Slider(
                     1,

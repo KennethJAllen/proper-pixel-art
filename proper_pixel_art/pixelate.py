@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 
 from proper_pixel_art import colors, mesh, utils
-from proper_pixel_art.config import ColorConfig, PixelateConfig
+from proper_pixel_art.config import ColorConfig, PixelateConfig, with_num_colors
 from proper_pixel_art.utils import Mesh
 
 
@@ -130,7 +130,7 @@ def downsample_binned(
     """
     alpha_threshold = color_config.alpha_threshold
     majority_fraction = color_config.transparency_majority_fraction
-    bin_size = color_config.bin_size
+    bin_size = color_config.dominant.bin_size
 
     valid = cell_map.cell_id >= 0
     cid = cell_map.cell_id[valid].astype(np.int64)
@@ -284,9 +284,10 @@ def pixelate(
     - image:
         A PIL image to pixelate.
     - num_colors:
-        The number of colors to use when quantizing the image.
-        Use 0 to skip quantization and preserve all colors.
-        This is an important parameter to tune,
+        Shorthand for the config's colors.method selection: a value >= 1
+        selects the palette method with that palette size, 0 selects the
+        dominant method (original colors preserved).
+        When quantizing, this is an important parameter to tune,
         if it is too high, pixels that should be the same color will be different colors
         if it is too low, pixels that should be different colors will be the same color
     - scale_result:
@@ -313,7 +314,6 @@ def pixelate(
     overrides = {
         name: value
         for name, value in (
-            ("num_colors", num_colors),
             ("initial_upscale_factor", initial_upscale_factor),
             ("scale_result", scale_result),
             ("transparent_background", transparent_background),
@@ -323,6 +323,8 @@ def pixelate(
     }
     if overrides:
         cfg = replace(cfg, **overrides)
+    if num_colors is not None:
+        cfg = with_num_colors(cfg, num_colors)
 
     image_rgba = image.convert("RGBA")
 
@@ -336,14 +338,13 @@ def pixelate(
     )
 
     # Process colors: either quantize or preserve original (with alpha)
-    skip_quantization = not cfg.num_colors  # 0 / None -> skip
+    skip_quantization = cfg.colors.method == "dominant"
     if skip_quantization:
         # Preserve alpha: pass RGBA directly, let downsample filter by alpha
         processed_img = image_rgba
     else:
         processed_img = colors.palette_img(
             image_rgba,
-            num_colors=cfg.num_colors,
             color_config=cfg.colors,
             output_dir=intermediate_dir,
         )
@@ -367,12 +368,15 @@ def pixelate(
         color_config=cfg.colors,
     )
 
-    # Merge near-duplicate output colors (skip-quantization speckle). Done
+    # Merge near-duplicate output colors (dominant-method speckle). Done
     # before background transparency so the boundary-color match sees merged
-    # colors. The quantized path's palette is already discrete.
-    if skip_quantization and cfg.colors.output_color_merge_distance > 0:
+    # colors. The palette path's colors are already discrete.
+    if skip_quantization and cfg.colors.dominant.merge_distance > 0:
         result = colors.merge_output_colors(
-            result, cfg.colors.output_color_merge_distance
+            result,
+            cfg.colors.dominant.merge_distance,
+            linkage=cfg.colors.dominant.merge_linkage,
+            max_colors=cfg.colors.dominant.max_linkage_colors,
         )
 
     if cfg.transparent_background:
