@@ -235,21 +235,26 @@ def test_process_gif_shows_animated_gif_preview(tmp_path: Path) -> None:
 
 
 @requires_gradio
-def test_process_mp4_shows_video_preview(tmp_path: Path) -> None:
+def test_process_mp4_auto_defaults_to_gif_preview(tmp_path: Path) -> None:
+    """On "Auto" the pipeline writes GIF regardless of the input format, so even
+    an mp4 upload lands on the GIF preview."""
     img, gif, video, status = _updates(_make_mp4(tmp_path))
+    assert gif["visible"] is True
+    assert img["visible"] is False and video["visible"] is False
+    assert gif["value"].startswith('<img src="data:image/gif;base64,')
+    assert "Done" in status["value"]
+
+
+@requires_gradio
+def test_process_format_override_routes_mp4_to_video(tmp_path: Path) -> None:
+    """Choosing format=mp4 opts out of the GIF default and gives the video
+    preview, which takes a real file path rather than inline HTML."""
+    img, gif, video, status = _updates(_make_mp4(tmp_path), output_format="mp4")
     assert video["visible"] is True
     assert img["visible"] is False and gif["visible"] is False
     out = Path(video["value"])
     assert out.suffix == ".mp4" and out.exists()
     assert "Done" in status["value"]
-
-
-@requires_gradio
-def test_process_format_override_routes_mp4_to_gif(tmp_path: Path) -> None:
-    """Choosing format=gif for a video input produces the GIF preview."""
-    img, gif, video, status = _updates(_make_mp4(tmp_path), output_format="gif")
-    assert gif["visible"] is True
-    assert img["visible"] is False and video["visible"] is False
 
 
 @requires_gradio
