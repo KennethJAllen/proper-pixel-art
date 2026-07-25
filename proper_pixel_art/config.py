@@ -248,6 +248,25 @@ def with_num_colors(cfg: PixelateConfig, num_colors: int) -> PixelateConfig:
     return replace(cfg, colors=colors)
 
 
+# Keys the 1.8.0 color-method split moved out of their old dataclass, so a
+# pre-1.8.0 YAML gets told where the setting went instead of a bare
+# "unknown key". Keyed by the dataclass the key used to live on.
+_MOVED_KEYS: dict[str, dict[str, str]] = {
+    "PixelateConfig": {
+        "num_colors": (
+            "moved to colors.palette.num_colors "
+            "(colors.method: palette selects that method)"
+        ),
+    },
+    "ColorConfig": {
+        "num_colors": "moved to colors.palette.num_colors",
+        "quantize_method": "moved to colors.palette.quantize_method",
+        "bin_size": "moved to colors.dominant.bin_size",
+        "output_color_merge_distance": "moved to colors.dominant.merge_distance",
+    },
+}
+
+
 def _build(dc_type, data: dict, **nested):
     """Return an instance of ``dc_type`` with ``data``/``nested`` overriding defaults.
 
@@ -260,9 +279,12 @@ def _build(dc_type, data: dict, **nested):
     valid = {f.name for f in fields(dc_type)}
     unknown = set(data) - valid
     if unknown:
-        raise ValueError(
-            f"Unknown config key(s) for {dc_type.__name__}: {sorted(unknown)}"
-        )
+        moved = _MOVED_KEYS.get(dc_type.__name__, {})
+        hints = [f"{key!r} {moved[key]}" for key in sorted(unknown) if key in moved]
+        message = f"Unknown config key(s) for {dc_type.__name__}: {sorted(unknown)}"
+        if hints:
+            message += ". " + "; ".join(hints)
+        raise ValueError(message)
     overrides = dict(nested)
     for key, value in data.items():
         if isinstance(getattr(base, key), tuple) and isinstance(value, list):

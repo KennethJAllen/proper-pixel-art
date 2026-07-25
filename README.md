@@ -288,6 +288,22 @@ ppa input.png --config config.yaml      # use the file
 ppa input.png --config config.yaml -c 8 # but override to an 8-color palette
 ```
 
+#### Migrating configs written before 1.8.0
+
+Version 1.8.0 split the color settings into a `colors.method` selector with one
+sub-section per method, so the method-specific keys moved. Loading a config with
+an old key raises an error naming its new location; rename them as follows:
+
+| Old key | New key |
+| --- | --- |
+| `num_colors` (top level) | `colors.palette.num_colors`, with `colors.method: palette` |
+| `colors.quantize_method` | `colors.palette.quantize_method` |
+| `colors.bin_size` | `colors.dominant.bin_size` |
+| `colors.output_color_merge_distance` | `colors.dominant.merge_distance` |
+
+The old `num_colors: 0` (skip quantization, keep the original colors) is now
+`colors.method: dominant`, which is the default. Every other key kept its place.
+
 ## Real Images To Pixel Art
 
 This tool can also be used to convert real images to pixel art: first request a pixelated version of the original image from GPT-4o, then use the tool to get the true pixel-resolution image. The mountain at the top of this README was made this way, starting from this photo:

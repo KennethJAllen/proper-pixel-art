@@ -188,6 +188,52 @@ def snap_anchor_lines(
     return [first, *interior, last]
 
 
+def _gap_pixel_count(
+    gap: int | float, pixel_width: int, split_leftover_fraction: float
+) -> int:
+    """Number of pixels a gap of ``gap`` is partitioned into: a leftover of at
+    least ``split_leftover_fraction`` of a pixel width earns an extra line
+    (0.5 is plain rounding; lower splits oversized cells more eagerly)."""
+    return int(gap / pixel_width + (1.0 - split_leftover_fraction))
+
+
+def _partition_gap(
+    left: int,
+    right: int,
+    num_pixels: int,
+    profile: np.ndarray | None,
+    window: int,
+    min_strength: float,
+    snap: bool,
+) -> Lines:
+    """Evenly spaced interior lines splitting ``(left, right)`` into
+    ``num_pixels`` cells, excluding the ``left`` anchor and ``right`` bound.
+
+    With ``snap`` set, each line is pulled to the strongest nearby profile
+    peak, bounded below by the previous line and above by ``right - 1`` so the
+    result stays strictly increasing inside the gap. ``_snap_line_to_profile``
+    returns an unclamped target when those bounds cross, so lines that would
+    not advance are dropped rather than appended.
+    """
+    gap_pixel_width = (right - left) / num_pixels
+    lines: Lines = []
+    for n in range(1, num_pixels):
+        previous = lines[-1] if lines else left
+        target = left + int(n * gap_pixel_width)
+        if snap:
+            target = _snap_line_to_profile(
+                profile,
+                target,
+                window,
+                min_strength,
+                low=previous + 1,
+                high=right - 1,
+            )
+        if target > previous:
+            lines.append(target)
+    return lines
+
+
 def _split_oversized_gaps(
     lines: Lines,
     pixel_width: int,
@@ -208,22 +254,16 @@ def _split_oversized_gaps(
         result: Lines = []
         for left, right in zip(lines[:-1], lines[1:], strict=True):
             result.append(left)
-            gap = right - left
-            num_pixels = int(gap / pixel_width + (1.0 - split_leftover_fraction))
+            num_pixels = _gap_pixel_count(
+                right - left, pixel_width, split_leftover_fraction
+            )
             if num_pixels < 2:
                 continue
-            gap_pixel_width = gap / num_pixels
-            for n in range(1, num_pixels):
-                target = _snap_line_to_profile(
-                    profile,
-                    left + int(n * gap_pixel_width),
-                    window,
-                    min_strength,
-                    low=result[-1] + 1,
-                    high=right - 1,
+            result.extend(
+                _partition_gap(
+                    left, right, num_pixels, profile, window, min_strength, snap=True
                 )
-                if target > result[-1]:
-                    result.append(target)
+            )
         result.append(lines[-1])
         if len(result) == len(lines):
             return result
@@ -250,6 +290,7 @@ def homogenize_lines(
     """
     mesh_config = mesh_config or MeshConfig()
     snap = profile is not None and mesh_config.snap_lines and profile.size > 0
+    window, min_strength = 0, 0.0  # unused unless snapping
     if snap:
         window = max(
             round(mesh_config.snap_search_window_ratio * pixel_width),
@@ -260,28 +301,26 @@ def homogenize_lines(
     section_widths = np.diff(lines)
     complete_lines = lines[:-1]
     for index, section_width in enumerate(section_widths):
-        # Get number of pixels to partition section width into: a leftover of
-        # at least split_leftover_fraction of a pixel width earns an extra line
-        # (0.5 is plain rounding; lower splits oversized cells more eagerly).
-        num_pixels = int(
-            section_width / pixel_width + (1.0 - mesh_config.split_leftover_fraction)
+        num_pixels = _gap_pixel_count(
+            section_width, pixel_width, mesh_config.split_leftover_fraction
         )
-        section_pixel_width = 0 if num_pixels == 0 else section_width / num_pixels
         line_start = lines[index]
-        # n == 0 is the detected anchor line itself; only interior lines snap
-        section_lines = [line_start] if num_pixels > 0 else []
-        for n in range(1, num_pixels):
-            target = line_start + int(n * section_pixel_width)
-            if snap:
-                target = _snap_line_to_profile(
+        # A section too narrow to hold one pixel drops its anchor line entirely;
+        # otherwise the anchor is kept as-is and only the interior lines snap.
+        section_lines: Lines = []
+        if num_pixels > 0:
+            section_lines = [
+                line_start,
+                *_partition_gap(
+                    line_start,
+                    lines[index + 1],
+                    num_pixels,
                     profile,
-                    target,
                     window,
                     min_strength,
-                    low=section_lines[-1] + 1,
-                    high=lines[index + 1] - 1,
-                )
-            section_lines.append(target)
+                    snap,
+                ),
+            ]
         # Replace the start index in completed lines with list of new line coordinates
         # Everything will be unpacked after to maintain indexes
         complete_lines[index] = section_lines
@@ -600,6 +639,29 @@ def select_pixel_width(
     return estimate, scores  # no acceptable replacement: keep the estimate
 
 
+def edges_from_grey(
+    grey: np.ndarray,
+    mesh_config: MeshConfig | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Run Canny edge detection on a grayscale array and close small gaps in the
+    result with a morphological closing.
+
+    Args:
+        grey: Grayscale array from :func:`compute_grey`
+        mesh_config: Tunable mesh-detection parameters (Canny, closing, ...)
+
+    Returns:
+        Tuple of (raw Canny edges, closed edges), both uint8 with values 0/255.
+        Callers that visualize the detection step need the raw edges; the mesh
+        pipeline itself only uses the closed ones.
+    """
+    mesh_config = mesh_config or MeshConfig()
+    edges = cv2.Canny(grey, *mesh_config.canny_thresholds)
+    closed_edges = close_edges(edges, kernel_size=mesh_config.closure_kernel_size)
+    return edges, closed_edges
+
+
 def compute_edge_map(
     img: Image.Image,
     mesh_config: MeshConfig | None = None,
@@ -618,8 +680,7 @@ def compute_edge_map(
     """
     mesh_config = mesh_config or MeshConfig()
     grey = compute_grey(img, mesh_config=mesh_config)
-    edges = cv2.Canny(grey, *mesh_config.canny_thresholds)
-    closed_edges = close_edges(edges, kernel_size=mesh_config.closure_kernel_size)
+    _, closed_edges = edges_from_grey(grey, mesh_config=mesh_config)
     return closed_edges
 
 
@@ -690,6 +751,7 @@ def compute_mesh_from_edges(
                 for w in (pixel_width, width_x, width_y, peak_x, peak_y, auto_x, auto_y)
                 if w is not None
             ]
+            estimated_width = pixel_width
             pixel_width, width_scores = select_pixel_width(
                 score_image,
                 mesh_initial,
@@ -698,6 +760,13 @@ def compute_mesh_from_edges(
                 mesh_config,
                 debug_context=output_dir is not None,
             )
+            if pixel_width != estimated_width:
+                # Rare enough to be worth surfacing: it means the estimators
+                # locked onto a harmonic of the true pixel width.
+                print(
+                    "width validation: overriding estimated pixel width "
+                    f"{estimated_width} -> {pixel_width}"
+                )
             if output_dir is not None and width_scores:
                 lines = [
                     f"{w}\t{score:.4f}" + ("\t<- chosen" if w == pixel_width else "")
@@ -757,8 +826,7 @@ def compute_mesh(
     """
     mesh_config = mesh_config or MeshConfig()
     grey = compute_grey(img, mesh_config=mesh_config)
-    edges = cv2.Canny(grey, *mesh_config.canny_thresholds)
-    closed_edges = close_edges(edges, kernel_size=mesh_config.closure_kernel_size)
+    edges, closed_edges = edges_from_grey(grey, mesh_config=mesh_config)
     profiles = compute_gradient_profiles(grey)
 
     if output_dir is not None:

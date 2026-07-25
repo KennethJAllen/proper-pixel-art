@@ -337,7 +337,8 @@ class ColorMerger:
         counts: Counter = Counter()
         for image in images:
             pixels = np.asarray(image.convert("RGBA")).reshape(-1, 4)
-            # int() the components: uint8 tuples would overflow in _rgb_dist
+            # int() the components so the Counter's tuple keys are plain
+            # Python ints, matching the .astype(int) keys apply() looks up
             opaque = pixels[pixels[:, 3] >= ALPHA_THRESHOLD][:, :3].astype(int)
             counts.update(map(tuple, opaque))
         self._fit_linkage(counts)

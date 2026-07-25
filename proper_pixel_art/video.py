@@ -46,9 +46,26 @@ DEFAULT_MIN_VOTE_FRACTION = 0.25
 _MAX_PALETTE_MOSAIC_PIXELS = 2_000_000
 
 
-def aggregate_edge_maps(
+def _scaled_greys(
     frames: list[Image.Image],
-    upscale_factor: int = 2,
+    upscale_factor: int,
+    mesh_config: MeshConfig | None = None,
+) -> list[np.ndarray]:
+    """Grayscale array per sampled frame, upscaled then cropped/clamped via
+    ``mesh.compute_grey``. Everything the mesh pass derives from the frames —
+    edge maps and width scoring alike — starts here, so both live in the same
+    (upscaled, cropped) coordinate space and the transform runs once."""
+    return [
+        mesh.compute_grey(
+            utils.scale_img(frame.convert("RGBA"), upscale_factor),
+            mesh_config=mesh_config,
+        )
+        for frame in frames
+    ]
+
+
+def aggregate_edge_maps(
+    greys: list[np.ndarray],
     mesh_config: MeshConfig | None = None,
     min_vote_fraction: float = DEFAULT_MIN_VOTE_FRACTION,
 ) -> np.ndarray:
@@ -57,8 +74,8 @@ def aggregate_edge_maps(
     ``min_vote_fraction`` of the frames.
 
     Args:
-        frames: Sampled RGBA frames (all the same size)
-        upscale_factor: Factor to upscale frames before edge detection
+        greys: Per-frame grayscale arrays from :func:`_scaled_greys` (all the
+            same size)
         mesh_config: Tunable mesh-detection parameters (Canny, closing, ...)
         min_vote_fraction: Minimum fraction of frames an edge pixel must
             appear in to be kept
@@ -66,19 +83,18 @@ def aggregate_edge_maps(
     Returns:
         Aggregated binary edge map (uint8, values 0 or 255)
     """
-    if not frames:
+    if not greys:
         raise ValueError("Cannot aggregate edge maps without frames")
     mesh_config = mesh_config or MeshConfig()
 
     accumulator = None
-    for frame in frames:
-        scaled_frame = utils.scale_img(frame.convert("RGBA"), upscale_factor)
-        edge_map = mesh.compute_edge_map(scaled_frame, mesh_config=mesh_config)
+    for grey in greys:
+        _, edge_map = mesh.edges_from_grey(grey, mesh_config=mesh_config)
         if accumulator is None:
             accumulator = np.zeros(edge_map.shape, dtype=np.int32)
         accumulator += edge_map > 0
 
-    min_votes = max(1, ceil(min_vote_fraction * len(frames)))
+    min_votes = max(1, ceil(min_vote_fraction * len(greys)))
     return ((accumulator >= min_votes) * 255).astype(np.uint8)
 
 
@@ -89,27 +105,6 @@ def _edge_density_profiles(edge_map: np.ndarray) -> tuple[np.ndarray, np.ndarray
     a gradient profile would."""
     binary = (edge_map > 0).astype(np.float64)
     return binary.sum(axis=0), binary.sum(axis=1)
-
-
-def _grey_stack(
-    frames: list[Image.Image],
-    upscale_factor: int,
-    mesh_config: MeshConfig | None = None,
-) -> np.ndarray:
-    """(frames, H, W) grayscale stack over the sampled frames, replicating the
-    exact per-frame transform the edge maps saw (upscale, then crop/clamp via
-    ``mesh.compute_grey``) so it lives in edge-map coordinates. A stack rather
-    than a mean: averaging frames with moving content washes out the spatial
-    structure that width scoring depends on."""
-    return np.stack(
-        [
-            mesh.compute_grey(
-                utils.scale_img(frame.convert("RGBA"), upscale_factor),
-                mesh_config=mesh_config,
-            )
-            for frame in frames
-        ]
-    )
 
 
 def compute_video_mesh(
@@ -135,9 +130,9 @@ def compute_video_mesh(
     Returns:
         Tuple of (mesh, upscale_factor used)
     """
+    greys = _scaled_greys(frames, upscale_factor, mesh_config)
     aggregated = aggregate_edge_maps(
-        frames,
-        upscale_factor=upscale_factor,
+        greys,
         mesh_config=mesh_config,
         min_vote_fraction=min_vote_fraction,
     )
@@ -159,16 +154,20 @@ def compute_video_mesh(
         original_img=representative,
         mesh_config=mesh_config,
         profiles=_edge_density_profiles(aggregated),
-        score_image=_grey_stack(frames, upscale_factor, mesh_config),
+        # A stack rather than a mean: averaging frames with moving content
+        # washes out the spatial structure that width scoring depends on.
+        score_image=np.stack(greys),
     )
     if not mesh.is_trivial_mesh(mesh_lines):
         return mesh_lines, upscale_factor
 
     # Fallback: try without upscaling. This overwrites the debug images from the
     # attempt above, which is fine — the fallback mesh is the one we return.
+    # The fallback edge map is at the original scale, so the greys must be
+    # recomputed at scale 1 rather than reused.
+    greys_fallback = _scaled_greys(frames, 1, mesh_config)
     aggregated_fallback = aggregate_edge_maps(
-        frames,
-        upscale_factor=1,
+        greys_fallback,
         mesh_config=mesh_config,
         min_vote_fraction=min_vote_fraction,
     )
@@ -179,9 +178,7 @@ def compute_video_mesh(
         original_img=frames[0].convert("RGBA") if output_dir is not None else None,
         mesh_config=mesh_config,
         profiles=_edge_density_profiles(aggregated_fallback),
-        # The fallback edge map is at the original scale, so the score image
-        # must be recomputed at scale 1 rather than reused.
-        score_image=_grey_stack(frames, 1, mesh_config),
+        score_image=np.stack(greys_fallback),
     )
     return fallback_mesh, 1
 

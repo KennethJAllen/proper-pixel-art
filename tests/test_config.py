@@ -1,5 +1,6 @@
 """Tests for the YAML/dataclass config and its integration with pixelate."""
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -133,6 +134,34 @@ def test_old_flat_keys_raise():
         PixelateConfig.from_dict({"colors": {"bin_size": 30}})
     with pytest.raises(ValueError, match="Unknown config key"):
         PixelateConfig.from_dict({"colors": {"output_color_merge_distance": 6}})
+
+
+@pytest.mark.parametrize(
+    ("data", "new_location"),
+    [
+        ({"num_colors": 8}, "colors.palette.num_colors"),
+        (
+            {"colors": {"quantize_method": "FASTOCTREE"}},
+            "colors.palette.quantize_method",
+        ),
+        ({"colors": {"bin_size": 30}}, "colors.dominant.bin_size"),
+        (
+            {"colors": {"output_color_merge_distance": 6}},
+            "colors.dominant.merge_distance",
+        ),
+    ],
+)
+def test_moved_keys_point_at_new_location(data, new_location):
+    """A pre-split key names where its setting went, not just that it is unknown."""
+    with pytest.raises(ValueError, match=f"moved to {re.escape(new_location)}"):
+        PixelateConfig.from_dict(data)
+
+
+def test_unknown_key_has_no_move_hint():
+    """A genuinely unknown key gets the plain error, with no bogus hint."""
+    with pytest.raises(ValueError, match="Unknown config key") as excinfo:
+        PixelateConfig.from_dict({"colors": {"bogus": 1}})
+    assert "moved to" not in str(excinfo.value)
 
 
 def test_unknown_method_raises():
