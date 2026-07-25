@@ -76,6 +76,13 @@ def test_from_dict_partial_deep_merge():
     assert cfg.colors.dominant.bin_size == 52
 
 
+def test_width_replacement_tolerance_config():
+    """width_replacement_tolerance defaults to 0.2 and round-trips from a dict."""
+    assert MeshConfig().width_replacement_tolerance == 0.2
+    cfg = PixelateConfig.from_dict({"mesh": {"width_replacement_tolerance": 0.5}})
+    assert cfg.mesh.width_replacement_tolerance == 0.5
+
+
 def test_from_dict_does_not_mutate_input():
     """from_dict must not mutate the caller's (nested) input dict."""
     data = {"mesh": {"hough": {"threshold": 42}}, "colors": {"palette": {"kmeans": 1}}}

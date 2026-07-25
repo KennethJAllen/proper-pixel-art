@@ -24,6 +24,7 @@ mesh:
   max_axis_width_ratio: 1.8        # per-axis width estimates further apart than this -> smaller wins
   validate_width: true             # score candidate pixel widths by within-cell variance
   width_selection_tolerance: 1.5   # replace the estimated width only when it scores (1 + this) x the best
+  width_replacement_tolerance: 0.2 # on correction, accept a replacement scoring within (1 + this) x the best
   profile_width_min_gaps: 5        # fewer Hough gaps than this -> profile width estimate
   split_leftover_fraction: 0.4     # leftover fraction of pixel width that earns an extra grid line (0.5 = plain rounding)
   hough:

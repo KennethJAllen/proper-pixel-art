@@ -177,22 +177,19 @@ def test_estimate_width_by_autocorrelation_degenerate_profiles():
 def test_estimate_axis_width_prefers_hough_gaps():
     """With enough gaps the Hough median wins even against a profile."""
     lines = [0, 10, 20, 30, 40, 50]  # 5 gaps of 10
-    profile = np.zeros(51)
-    profile[7::7] = 100.0  # profile would say 7
-    assert mesh.estimate_axis_width(lines, profile, MeshConfig()) == 10
+    # Precomputed profile estimate would say 7; Hough gaps still win.
+    assert mesh.estimate_axis_width(lines, 7, None, MeshConfig()) == 10
 
 
 def test_estimate_axis_width_falls_back_to_profile():
-    """Too few gaps -> profile peak estimate."""
+    """Too few gaps -> profile peak estimate (autocorrelation only if no peak)."""
     lines = [0, 50]
-    profile = np.zeros(51)
-    profile[7:50:7] = 100.0
-    assert mesh.estimate_axis_width(lines, profile, MeshConfig()) == 7
+    assert mesh.estimate_axis_width(lines, 7, 5, MeshConfig()) == 7
+    assert mesh.estimate_axis_width(lines, None, 5, MeshConfig()) == 5
 
 
 def test_estimate_axis_width_none_when_no_evidence():
-    assert mesh.estimate_axis_width([0, 50], np.zeros(51), MeshConfig()) is None
-    assert mesh.estimate_axis_width([0, 50], None, MeshConfig()) is None
+    assert mesh.estimate_axis_width([0, 50], None, None, MeshConfig()) is None
 
 
 def test_resolve_pixel_width():
@@ -241,7 +238,7 @@ def test_select_pixel_width_confirms_correct_width():
     mesh_initial = ([0, size - 1], [0, size - 1])
 
     chosen, scores = mesh.select_pixel_width(
-        grey, mesh_initial, None, [width], MeshConfig()
+        grey, mesh_initial, None, [width], MeshConfig(), debug_context=True
     )
     assert chosen == width
     assert scores[2 * width] > scores[width]
@@ -278,7 +275,7 @@ def test_select_pixel_width_keeps_estimate_without_backed_alternative():
     mesh_initial = ([0, 159], [0, 159])
 
     chosen, scores = mesh.select_pixel_width(
-        ramp, mesh_initial, None, [40], MeshConfig()
+        ramp, mesh_initial, None, [40], MeshConfig(), debug_context=True
     )
     assert chosen == 40
     assert scores[20] < scores[40]  # the bias is real; the guard resists it
@@ -315,6 +312,25 @@ def test_validate_width_corrects_hough_lockon_when_enabled():
     assert len(mesh_off[0]) - 1 <= cells // 2 + 1
     # Enabled: corrected to the true width -> ~cells cells.
     assert len(mesh_on[0]) - 1 >= cells - 1
+
+
+def test_select_pixel_width_context_gated_by_debug_flag():
+    """The +-1/double/half neighborhood is scored only for the debug output:
+    without debug_context just the eligible candidates are scored."""
+    width, cells = 10, 8
+    grey = _checker_grey(cells, width)
+    size = cells * width
+    mesh_initial = ([0, size - 1], [0, size - 1])
+
+    _, plain = mesh.select_pixel_width(grey, mesh_initial, None, [width], MeshConfig())
+    assert set(plain) == {width}  # no neighbors when debug is off
+
+    _, expanded = mesh.select_pixel_width(
+        grey, mesh_initial, None, [width], MeshConfig(), debug_context=True
+    )
+    assert set(plain) <= set(expanded)
+    # +-1, double and half neighbors are added purely for the debug output.
+    assert {width - 1, width + 1, 2 * width, width // 2} <= set(expanded)
 
 
 def test_width_scores_debug_output(tmp_path):

@@ -14,10 +14,6 @@ from proper_pixel_art.utils import Lines, Mesh
 # holds the canonical values.
 _DEFAULTS = MeshConfig()
 
-# When width validation rejects the estimate, its replacement is the largest
-# candidate scoring within this fraction of the best (see select_pixel_width).
-_REPLACEMENT_TOLERANCE = 0.2
-
 
 def close_edges(
     edges: np.ndarray, kernel_size: int = _DEFAULTS.closure_kernel_size
@@ -421,7 +417,8 @@ def estimate_width_by_autocorrelation(
 
 def estimate_axis_width(
     lines: Lines,
-    profile: np.ndarray | None,
+    peak_estimate: int | None,
+    auto_estimate: int | None,
     mesh_config: MeshConfig | None = None,
 ) -> int | None:
     """
@@ -429,8 +426,12 @@ def estimate_axis_width(
 
     Prefers the Hough gap median when the axis has enough detected gaps for a
     stable estimate (border lines are always seeded, so the count is interior
-    gaps plus one); otherwise falls back to profile peak spacing, then to
-    autocorrelation. Returns None when no estimator produces a width.
+    gaps plus one); otherwise falls back to the profile peak-spacing estimate,
+    then to the autocorrelation estimate. ``peak_estimate`` and
+    ``auto_estimate`` are the precomputed
+    :func:`estimate_width_from_profile` / :func:`estimate_width_by_autocorrelation`
+    results for this axis (``None`` when unavailable), passed in so the caller
+    can reuse them elsewhere. Returns None when no estimator produces a width.
     """
     mesh_config = mesh_config or MeshConfig()
     num_gaps = max(len(lines) - 1, 0)
@@ -438,12 +439,9 @@ def estimate_axis_width(
         return get_pixel_width(
             [lines], trim_outlier_fraction=mesh_config.trim_outlier_fraction
         )
-    if profile is None:
-        return None
-    estimate = estimate_width_from_profile(profile)
-    if estimate is not None:
-        return estimate
-    return estimate_width_by_autocorrelation(profile)
+    if peak_estimate is not None:
+        return peak_estimate
+    return auto_estimate
 
 
 def resolve_pixel_width(
@@ -532,6 +530,8 @@ def select_pixel_width(
     profiles: tuple[np.ndarray, np.ndarray] | None,
     candidates: list[int],
     mesh_config: MeshConfig | None = None,
+    *,
+    debug_context: bool = False,
 ) -> tuple[int, dict[int, float]]:
     """
     Validate the estimated pixel width (``candidates[0]``) by reconstruction
@@ -546,13 +546,16 @@ def select_pixel_width(
     than ``(1 + width_selection_tolerance)`` times the best candidate; a
     genuine harmonic lock-on (mesh cells spanning several true pixels) mixes
     distinct pixel colors and fails that check, in which case the largest
-    candidate scoring close to the best replaces it (largest-first avoids
-    collapsing toward the small-cell advantage). With no acceptable
-    replacement the estimate is kept.
+    candidate scoring within ``(1 + width_replacement_tolerance)`` of the best
+    replaces it (largest-first avoids collapsing toward the small-cell
+    advantage). With no acceptable replacement the estimate is kept.
 
-    Returns the chosen width and the scores of all widths evaluated —
-    candidates plus their +-1/double/half neighborhood, which is scored only
-    for the debug output.
+    Only the estimator-backed candidates affect the decision. When
+    ``debug_context`` is set, each candidate's ``+-1/double/half`` neighborhood
+    is additionally scored purely to enrich the returned scores for the debug
+    output; those neighbors never change the chosen width.
+
+    Returns the chosen width and the scores of all widths evaluated.
     """
     mesh_config = mesh_config or MeshConfig()
     height, width = grey.shape[-2:]
@@ -560,10 +563,14 @@ def select_pixel_width(
     eligible = sorted(w for w in set(candidates) if 2 <= w <= max_width)
     if not eligible:
         return candidates[0], {}
-    context: set[int] = set()
-    for candidate in eligible:
-        context.update({candidate - 1, candidate + 1, candidate * 2, candidate // 2})
-    valid = sorted(set(eligible) | {w for w in context if 2 <= w <= max_width})
+    valid = eligible
+    if debug_context:
+        context: set[int] = set()
+        for candidate in eligible:
+            context.update(
+                {candidate - 1, candidate + 1, candidate * 2, candidate // 2}
+            )
+        valid = sorted(set(eligible) | {w for w in context if 2 <= w <= max_width})
 
     lines_x, lines_y = mesh_initial
     profile_x, profile_y = profiles if profiles is not None else (None, None)
@@ -586,7 +593,7 @@ def select_pixel_width(
         return estimate, scores
     # The estimate is decisively worse than another estimator's width;
     # replace it with the largest such width scoring close to the best.
-    replace_threshold = (1.0 + _REPLACEMENT_TOLERANCE) * best_score
+    replace_threshold = (1.0 + mesh_config.width_replacement_tolerance) * best_score
     for w in sorted(eligible, reverse=True):
         if scores[w] <= replace_threshold:
             return w, scores
@@ -659,8 +666,17 @@ def compute_mesh_from_edges(
     profile_x, profile_y = profiles if profiles is not None else (None, None)
 
     if pixel_width is None:
-        width_x = estimate_axis_width(lines_x, profile_x, mesh_config)
-        width_y = estimate_axis_width(lines_y, profile_y, mesh_config)
+        # Compute each profile's peak/autocorrelation width estimate once and
+        # reuse them for both the per-axis fallback and the candidate list.
+        if profiles is not None:
+            peak_x = estimate_width_from_profile(profile_x)
+            peak_y = estimate_width_from_profile(profile_y)
+            auto_x = estimate_width_by_autocorrelation(profile_x)
+            auto_y = estimate_width_by_autocorrelation(profile_y)
+        else:
+            peak_x = peak_y = auto_x = auto_y = None
+        width_x = estimate_axis_width(lines_x, peak_x, auto_x, mesh_config)
+        width_y = estimate_axis_width(lines_y, peak_y, auto_y, mesh_config)
         pixel_width = resolve_pixel_width(width_x, width_y, mesh_config)
         if pixel_width is None:
             # Last resort: pooled gap median across both axes (border lines
@@ -671,21 +687,16 @@ def compute_mesh_from_edges(
         if mesh_config.validate_width and score_image is not None and pixel_width >= 2:
             candidates = [
                 w
-                for w in (
-                    pixel_width,
-                    width_x,
-                    width_y,
-                    *(map(estimate_width_from_profile, profiles) if profiles else ()),
-                    *(
-                        map(estimate_width_by_autocorrelation, profiles)
-                        if profiles
-                        else ()
-                    ),
-                )
+                for w in (pixel_width, width_x, width_y, peak_x, peak_y, auto_x, auto_y)
                 if w is not None
             ]
             pixel_width, width_scores = select_pixel_width(
-                score_image, mesh_initial, profiles, candidates, mesh_config
+                score_image,
+                mesh_initial,
+                profiles,
+                candidates,
+                mesh_config,
+                debug_context=output_dir is not None,
             )
             if output_dir is not None and width_scores:
                 lines = [

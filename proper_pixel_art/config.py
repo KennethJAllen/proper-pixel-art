@@ -54,6 +54,9 @@ class MeshConfig:
     width_selection_tolerance: float = (
         1.5  # replace the estimated width only when it scores (1 + this) x the best
     )
+    width_replacement_tolerance: float = (
+        0.2  # on correction, accept a replacement scoring within (1 + this) x the best
+    )
     profile_width_min_gaps: int = (
         5  # fewer Hough gaps than this -> profile width estimate
     )
