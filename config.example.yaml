@@ -4,10 +4,12 @@
 #   PixelateConfig.from_yaml("config.yaml")   # from Python
 #   ppa input.png --config config.yaml        # from the CLI (flags override)
 
+version: 2               # config schema version (optional; must be 2 when present)
+
 initial_upscale_factor: 2
-scale_result: 1
+scale_result: null        # upscale the result by this factor; null = no scaling
 transparent_background: false
-pixel_width: 0
+pixel_width: null         # width of the input's logical pixels; null = auto-detect
 
 mesh:
   crop_border_pixels: 2
@@ -51,3 +53,8 @@ colors:
     merge_distance: 12             # merge output colors closer than this (Euclidean RGB); 0 disables
     merge_linkage: complete        # linkage criterion: complete, average, or single
     max_linkage_colors: 4096       # cap on unique colors fitted by the merge clustering
+
+video:                             # video/GIF inputs only; ignored for still images
+  output_format: gif               # gif or mp4; an explicit output path suffix wins
+  num_sample_frames: 8             # frames sampled for mesh/palette detection
+  min_vote_fraction: 0.25          # keep a grid edge seen in >= this fraction of sampled frames

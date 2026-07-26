@@ -75,7 +75,8 @@ def build_config(
         {
             "scale_result": int(scale_result),
             "initial_upscale_factor": int(initial_upscale_factor),
-            "pixel_width": int(pixel_width),
+            # The UI slider uses 0 for "auto"; the config expects None.
+            "pixel_width": int(pixel_width) or None,
             "transparent_background": bool(transparent_background),
             "mesh": {
                 "crop_border_pixels": int(crop_border_pixels),
@@ -229,7 +230,7 @@ def create_demo():
                 label="Colors (0 = keep original colors)",
             )
             scale = gr.Slider(
-                1, 20, value=_DEFAULTS.scale_result, step=1, label="Scale Result"
+                1, 20, value=_DEFAULTS.scale_result or 1, step=1, label="Scale Result"
             )
 
         with gr.Row():
@@ -241,7 +242,7 @@ def create_demo():
                 label="Initial Upscale",
             )
             pixel_width = gr.Slider(
-                0, 50, value=_DEFAULTS.pixel_width, step=1, label="Pixel Width (0=auto)"
+                0, 50, value=_DEFAULTS.pixel_width or 0, step=1, label="Pixel Width (0=auto)"
             )
 
         with gr.Row():

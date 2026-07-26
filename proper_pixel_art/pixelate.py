@@ -331,7 +331,7 @@ def pixelate(
         image_rgba,
         cfg.initial_upscale_factor,
         intermediate_dir=intermediate_dir,
-        pixel_width=cfg.pixel_width or None,  # 0 / None -> auto-detect
+        pixel_width=cfg.pixel_width,
         mesh_config=cfg.mesh,
     )
 
@@ -380,7 +380,7 @@ def pixelate(
     if cfg.transparent_background:
         result = colors.make_background_transparent(result)
 
-    if (cfg.scale_result or 1) > 1:
+    if cfg.scale_result is not None and cfg.scale_result > 1:
         result = utils.scale_img(result, int(cfg.scale_result))
 
     return result

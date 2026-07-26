@@ -26,6 +26,7 @@ from proper_pixel_art.config import (
     ColorConfig,
     MeshConfig,
     PixelateConfig,
+    VideoConfig,
     with_num_colors,
 )
 from proper_pixel_art.pixelate import (
@@ -36,14 +37,6 @@ from proper_pixel_art.pixelate import (
 from proper_pixel_art.utils import Mesh
 
 logger = logging.getLogger(__name__)
-
-# Keep a grid edge if it appears in at least this fraction of sampled frames.
-# In clean pixel-art video every content edge lies on the grid, so a low
-# threshold strengthens the Hough evidence; requiring more than one frame
-# still suppresses single-frame compression noise. A strict majority vote
-# would erase grid segments only visible where moving content happens to
-# create contrast.
-DEFAULT_MIN_VOTE_FRACTION = 0.25
 
 # Pixel budget for the all-frames mosaic used to build the shared GIF palette.
 _MAX_PALETTE_MOSAIC_PIXELS = 2_000_000
@@ -70,7 +63,7 @@ def _scaled_greys(
 def aggregate_edge_maps(
     greys: list[np.ndarray],
     mesh_config: MeshConfig | None = None,
-    min_vote_fraction: float = DEFAULT_MIN_VOTE_FRACTION,
+    min_vote_fraction: float | None = None,
 ) -> np.ndarray:
     """
     Compute per-frame edge maps and keep edges present in at least
@@ -81,7 +74,7 @@ def aggregate_edge_maps(
             same size)
         mesh_config: Tunable mesh-detection parameters (Canny, closing, ...)
         min_vote_fraction: Minimum fraction of frames an edge pixel must
-            appear in to be kept
+            appear in to be kept (default: ``VideoConfig.min_vote_fraction``)
 
     Returns:
         Aggregated binary edge map (uint8, values 0 or 255)
@@ -89,6 +82,8 @@ def aggregate_edge_maps(
     if not greys:
         raise ValueError("Cannot aggregate edge maps without frames")
     mesh_config = mesh_config or MeshConfig()
+    if min_vote_fraction is None:
+        min_vote_fraction = VideoConfig().min_vote_fraction
 
     accumulator = None
     for grey in greys:
@@ -116,7 +111,7 @@ def compute_video_mesh(
     pixel_width: int | None = None,
     intermediate_dir: Path | None = None,
     mesh_config: MeshConfig | None = None,
-    min_vote_fraction: float = DEFAULT_MIN_VOTE_FRACTION,
+    min_vote_fraction: float | None = None,
 ) -> tuple[Mesh, int]:
     """
     Compute a master mesh for a video from sampled frames.
@@ -563,9 +558,10 @@ def pixelate_video(
     mesh_lines, upscale_factor = compute_video_mesh(
         sample_frames,
         upscale_factor=cfg.initial_upscale_factor,
-        pixel_width=cfg.pixel_width or None,  # 0 / None -> auto-detect
+        pixel_width=cfg.pixel_width,
         intermediate_dir=intermediate_dir,
         mesh_config=cfg.mesh,
+        min_vote_fraction=cfg.video.min_vote_fraction,
     )
     pipeline = FramePipeline(
         mesh_lines,

@@ -1,6 +1,5 @@
 """Tests for the YAML/dataclass config and its integration with pixelate."""
 
-import re
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +14,7 @@ from proper_pixel_art.config import (
     MeshConfig,
     PaletteConfig,
     PixelateConfig,
+    VideoConfig,
     with_num_colors,
 )
 
@@ -124,44 +124,53 @@ def test_unknown_key_raises():
         PixelateConfig.from_dict({"colors": {"dominant": {"bogus": 1}}})
 
 
-def test_old_flat_keys_raise():
-    """Pre-split keys are gone: the unknown-key check must reject them."""
-    with pytest.raises(ValueError, match="Unknown config key"):
-        PixelateConfig.from_dict({"num_colors": 8})
-    with pytest.raises(ValueError, match="Unknown config key"):
-        PixelateConfig.from_dict({"colors": {"quantize_method": "FASTOCTREE"}})
-    with pytest.raises(ValueError, match="Unknown config key"):
-        PixelateConfig.from_dict({"colors": {"bin_size": 30}})
-    with pytest.raises(ValueError, match="Unknown config key"):
-        PixelateConfig.from_dict({"colors": {"output_color_merge_distance": 6}})
+def test_old_flat_keys_raise_with_changelog_hint():
+    """Pre-2.0 keys are gone: they fail with a pointer at the CHANGELOG."""
+    for data in (
+        {"num_colors": 8},
+        {"colors": {"quantize_method": "FASTOCTREE"}},
+        {"colors": {"bin_size": 30}},
+        {"colors": {"output_color_merge_distance": 6}},
+    ):
+        with pytest.raises(ValueError, match="CHANGELOG"):
+            PixelateConfig.from_dict(data)
 
 
-@pytest.mark.parametrize(
-    ("data", "new_location"),
-    [
-        ({"num_colors": 8}, "colors.palette.num_colors"),
-        (
-            {"colors": {"quantize_method": "FASTOCTREE"}},
-            "colors.palette.quantize_method",
-        ),
-        ({"colors": {"bin_size": 30}}, "colors.dominant.bin_size"),
-        (
-            {"colors": {"output_color_merge_distance": 6}},
-            "colors.dominant.merge_distance",
-        ),
-    ],
-)
-def test_moved_keys_point_at_new_location(data, new_location):
-    """A pre-split key names where its setting went, not just that it is unknown."""
-    with pytest.raises(ValueError, match=f"moved to {re.escape(new_location)}"):
-        PixelateConfig.from_dict(data)
+def test_version_key_accepted():
+    """An explicit version: 2 is accepted and stripped."""
+    assert PixelateConfig.from_dict({"version": 2}) == PixelateConfig()
 
 
-def test_unknown_key_has_no_move_hint():
-    """A genuinely unknown key gets the plain error, with no bogus hint."""
-    with pytest.raises(ValueError, match="Unknown config key") as excinfo:
-        PixelateConfig.from_dict({"colors": {"bogus": 1}})
-    assert "moved to" not in str(excinfo.value)
+def test_wrong_version_raises():
+    with pytest.raises(ValueError, match="Unsupported config version"):
+        PixelateConfig.from_dict({"version": 1})
+
+
+def test_zero_sentinels_raise():
+    """The pre-2.0 numeric sentinels fail loudly with a CHANGELOG pointer."""
+    with pytest.raises(ValueError, match="CHANGELOG"):
+        PixelateConfig(pixel_width=0)
+    with pytest.raises(ValueError, match="CHANGELOG"):
+        PixelateConfig(scale_result=0)
+
+
+def test_none_sentinels_are_defaults():
+    cfg = PixelateConfig()
+    assert cfg.scale_result is None
+    assert cfg.pixel_width is None
+
+
+def test_video_config_defaults_and_validation():
+    cfg = PixelateConfig.from_dict({"video": {"output_format": "mp4"}})
+    assert cfg.video.output_format == "mp4"
+    assert cfg.video.num_sample_frames == 8
+    assert cfg.video.min_vote_fraction == 0.25
+    with pytest.raises(ValueError, match="Unknown output_format"):
+        VideoConfig(output_format="webm")
+    with pytest.raises(ValueError, match="num_sample_frames"):
+        VideoConfig(num_sample_frames=0)
+    with pytest.raises(ValueError, match="min_vote_fraction"):
+        VideoConfig(min_vote_fraction=0)
 
 
 def test_unknown_method_raises():
