@@ -1,9 +1,8 @@
-"""Tests for the ``ppa-web`` interface: CLI entry point, config assembly, and
-the input-type dispatch/preview routing in ``process``."""
+"""Tests for the ``ppa web`` interface: config assembly and the input-type
+dispatch/preview routing in ``process``. The `ppa web` CLI dispatch is covered
+in tests/test_cli.py."""
 
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import cv2
 import numpy as np
@@ -29,12 +28,14 @@ requires_gradio = pytest.mark.skipif(
 )
 
 
-def _config_kwargs(**overrides) -> dict:
-    """The full set of ``build_config`` keyword arguments, in signature order,
-    with the built-in defaults. Override any of them per test; the returned dict
-    is also fed positionally to ``process`` (dict order == parameter order)."""
-    kwargs = dict(
-        num_colors=16,
+def _config_values(**overrides) -> dict:
+    """The full set of ``build_config`` values, keyed and ordered by
+    ``web.CONFIG_KEYS``, with the built-in defaults. Override any of them per
+    test; the returned dict's values are also fed positionally to ``process``
+    (dict order == CONFIG_KEYS order)."""
+    values = dict(
+        color_method="palette",
+        colors=16,
         scale_result=1,
         initial_upscale_factor=2,
         pixel_width=0,
@@ -59,33 +60,9 @@ def _config_kwargs(**overrides) -> dict:
         thumbnail_w=160,
         thumbnail_h=160,
     )
-    kwargs.update(overrides)
-    return kwargs
-
-
-# --- ppa-web CLI ----------------------------------------------------------
-
-
-def test_web_main_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Check that web.main() launches with default server_name and server_port as None."""
-    monkeypatch.setattr(sys, "argv", ["ppa-web"])
-
-    mock_demo = MagicMock()
-    with patch("proper_pixel_art.web.create_demo", return_value=mock_demo):
-        web.main()
-
-    mock_demo.launch.assert_called_once_with(server_name=None, server_port=None)
-
-
-def test_web_main_custom_host_port(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Check that web.main() parses --host and --port and passes them to demo.launch."""
-    monkeypatch.setattr(sys, "argv", ["ppa-web", "--host", "0.0.0.0", "--port", "8080"])
-
-    mock_demo = MagicMock()
-    with patch("proper_pixel_art.web.create_demo", return_value=mock_demo):
-        web.main()
-
-    mock_demo.launch.assert_called_once_with(server_name="0.0.0.0", server_port=8080)
+    assert tuple(values) == web.CONFIG_KEYS
+    values.update(overrides)
+    return values
 
 
 # --- build_config (no gradio required) ------------------------------------
@@ -94,8 +71,8 @@ def test_web_main_custom_host_port(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_build_config_maps_all_ui_values() -> None:
     """Every control value lands in the right (possibly nested) config field."""
     cfg = web.build_config(
-        **_config_kwargs(
-            num_colors=16,
+        _config_values(
+            colors=16,
             scale_result=3,
             initial_upscale_factor=2,
             pixel_width=5,
@@ -130,21 +107,25 @@ def test_build_config_maps_all_ui_values() -> None:
     assert cfg.colors.thumbnail_size == (120, 140)
 
 
-def test_build_config_zero_colors_selects_dominant_method() -> None:
-    """Slider value 0 keeps the CLI shorthand semantics: dominant method,
-    palette sub-config left at a valid default size."""
-    cfg = web.build_config(**_config_kwargs(num_colors=0))
+def test_build_config_dominant_method() -> None:
+    """The dominant method comes from the Radio; the palette sub-config keeps
+    its (valid) size for when the user switches back."""
+    cfg = web.build_config(_config_values(color_method="dominant"))
     assert cfg.colors.method == "dominant"
     assert cfg.colors.palette.num_colors >= 1
+
+
+def test_build_config_pixel_width_zero_means_auto() -> None:
+    """The slider's 0 maps to the config's None (auto-detect)."""
+    cfg = web.build_config(_config_values(pixel_width=0))
+    assert cfg.pixel_width is None
 
 
 def test_build_config_coerces_types() -> None:
     """Gradio hands back floats; integer-typed fields must end up as real ints
     (and list fields as tuples) so downstream indexing/quantization works."""
     cfg = web.build_config(
-        **_config_kwargs(
-            num_colors=16.0, canny_low=40.0, canny_high=210.0, bin_size=52.0
-        )
+        _config_values(colors=16.0, canny_low=40.0, canny_high=210.0, bin_size=52.0)
     )
     assert isinstance(cfg.colors.palette.num_colors, int)
     assert isinstance(cfg.mesh.canny_thresholds, tuple)
@@ -163,8 +144,8 @@ PIXEL_WIDTH = 10
 PALETTE = np.array(
     [(40, 180, 60), (200, 30, 30), (30, 30, 200), (240, 220, 80)], dtype=np.uint8
 )
-# build_config args in positional order, for forwarding through process().
-CONFIG_ARGS = tuple(_config_kwargs().values())
+# build_config values in CONFIG_KEYS order, for forwarding through process().
+CONFIG_ARGS = tuple(_config_values().values())
 
 
 def _frames(n: int, seed: int = 0) -> list[np.ndarray]:

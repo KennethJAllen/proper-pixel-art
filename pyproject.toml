@@ -50,7 +50,6 @@ scripts = [
 
 [project.scripts]
 ppa = "proper_pixel_art.cli:main"
-ppa-web = "proper_pixel_art.web:main"
 
 [build-system]
 requires = ["hatchling"]
