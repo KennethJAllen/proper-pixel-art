@@ -35,7 +35,7 @@ def crop_border(image: Image.Image, num_pixels: int = 1) -> Image.Image:
     return cropped
 
 
-def overlay_grid_lines(
+def overlay_mesh_lines(
     image: Image.Image,
     mesh: Mesh,
     line_color: tuple[int, int, int] = (255, 0, 0),

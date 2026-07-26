@@ -114,7 +114,7 @@ def compute_video_mesh(
     frames: list[Image.Image],
     upscale_factor: int = 2,
     pixel_width: int | None = None,
-    output_dir: Path | None = None,
+    intermediate_dir: Path | None = None,
     mesh_config: MeshConfig | None = None,
     min_vote_fraction: float = DEFAULT_MIN_VOTE_FRACTION,
 ) -> tuple[Mesh, int]:
@@ -126,7 +126,7 @@ def compute_video_mesh(
         frames: Sampled RGBA frames (all the same size)
         upscale_factor: Initial upscale factor for edge detection
         pixel_width: If set, skip automatic pixel width detection
-        output_dir: If set, save debug images
+        intermediate_dir: If set, save debug images
         mesh_config: Tunable mesh-detection parameters
         min_vote_fraction: See :func:`aggregate_edge_maps`
 
@@ -140,20 +140,20 @@ def compute_video_mesh(
         min_vote_fraction=min_vote_fraction,
     )
 
-    if output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
+    if intermediate_dir is not None:
+        intermediate_dir.mkdir(parents=True, exist_ok=True)
 
     # The aggregated edge map is at the upscaled resolution (each frame is scaled
     # by upscale_factor before edge detection), so the debug overlay must match.
     representative = (
         utils.scale_img(frames[0].convert("RGBA"), upscale_factor)
-        if output_dir is not None
+        if intermediate_dir is not None
         else None
     )
     mesh_lines = mesh.compute_mesh_from_edges(
         aggregated,
         pixel_width=pixel_width,
-        output_dir=output_dir,
+        intermediate_dir=intermediate_dir,
         original_img=representative,
         mesh_config=mesh_config,
         profiles=_edge_density_profiles(aggregated),
@@ -177,8 +177,8 @@ def compute_video_mesh(
     fallback_mesh = mesh.compute_mesh_from_edges(
         aggregated_fallback,
         pixel_width=pixel_width,
-        output_dir=output_dir,
-        original_img=frames[0].convert("RGBA") if output_dir is not None else None,
+        intermediate_dir=intermediate_dir,
+        original_img=frames[0].convert("RGBA") if intermediate_dir is not None else None,
         mesh_config=mesh_config,
         profiles=_edge_density_profiles(aggregated_fallback),
         score_image=np.stack(greys_fallback),
@@ -189,14 +189,14 @@ def compute_video_mesh(
 def build_global_palette(
     frames: list[Image.Image],
     color_config: ColorConfig | None = None,
-    output_dir: Path | None = None,
+    intermediate_dir: Path | None = None,
 ) -> tuple[Image.Image, str]:
     """
     Build one shared palette from sampled frames so every frame quantizes to
     the same colors (no palette flicker between frames).
 
     Args:
-        output_dir: If set, save the quantized sample mosaic as a debug image.
+        intermediate_dir: If set, save the quantized sample mosaic as a debug image.
 
     Returns:
         Tuple of (P-mode palette image, background hex used by clamp_alpha).
@@ -233,8 +233,8 @@ def build_global_palette(
         dither=palette.dither_mode,
         kmeans=palette.kmeans,
     )
-    if output_dir is not None:
-        palette_img.save(output_dir / "quantized_original.png")
+    if intermediate_dir is not None:
+        palette_img.save(intermediate_dir / "quantized_original.png")
     return palette_img, background_hex
 
 
@@ -279,7 +279,7 @@ class FramePipeline:
             self.palette_img, self.background_hex = build_global_palette(
                 sample_frames,
                 color_config=self.color_config,
-                output_dir=intermediate_dir,
+                intermediate_dir=intermediate_dir,
             )
             self.palette_rgb = np.array(
                 self.palette_img.getpalette(), dtype=np.uint8
@@ -564,7 +564,7 @@ def pixelate_video(
         sample_frames,
         upscale_factor=cfg.initial_upscale_factor,
         pixel_width=cfg.pixel_width or None,  # 0 / None -> auto-detect
-        output_dir=intermediate_dir,
+        intermediate_dir=intermediate_dir,
         mesh_config=cfg.mesh,
     )
     pipeline = FramePipeline(

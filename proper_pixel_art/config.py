@@ -51,10 +51,10 @@ class MeshConfig:
         1.8  # per-axis width estimates further apart than this -> smaller wins
     )
     validate_width: bool = True  # score candidate widths by within-cell variance
-    width_selection_tolerance: float = (
+    width_keep_tolerance: float = (
         1.5  # replace the estimated width only when it scores (1 + this) x the best
     )
-    width_replacement_tolerance: float = (
+    width_replace_tolerance: float = (
         0.2  # on correction, accept a replacement scoring within (1 + this) x the best
     )
     profile_width_min_gaps: int = (

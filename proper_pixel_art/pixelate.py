@@ -330,7 +330,7 @@ def pixelate(
     mesh_lines, upscale_factor = mesh.compute_mesh_with_scaling(
         image_rgba,
         cfg.initial_upscale_factor,
-        output_dir=intermediate_dir,
+        intermediate_dir=intermediate_dir,
         pixel_width=cfg.pixel_width or None,  # 0 / None -> auto-detect
         mesh_config=cfg.mesh,
     )
@@ -344,7 +344,7 @@ def pixelate(
         processed_img = colors.palette_img(
             image_rgba,
             color_config=cfg.colors,
-            output_dir=intermediate_dir,
+            intermediate_dir=intermediate_dir,
         )
 
     # Scale the processed image to match the dimensions for the calculated mesh

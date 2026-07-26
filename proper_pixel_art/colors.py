@@ -335,12 +335,12 @@ def merge_output_colors(
 def palette_img(
     image: Image.Image,
     color_config: ColorConfig | None = None,
-    output_dir: Path | None = None,
+    intermediate_dir: Path | None = None,
 ) -> Image.Image:
     """
     Quantize the image to at most ``color_config.palette.num_colors`` and
     return the paletted image.
-    Saves the quantized image to output_dir if it is not None.
+    Saves the quantized image to intermediate_dir if it is not None.
 
     The default MAXCOVERAGE method gives the best results overall, though some
     images need a large num_colors even when they have few actual colors; for
@@ -363,8 +363,8 @@ def palette_img(
         dither=palette.dither_mode,
         kmeans=palette.kmeans,
     )
-    if output_dir is not None:
-        quantized_img.save(output_dir / "quantized_original.png")
+    if intermediate_dir is not None:
+        quantized_img.save(intermediate_dir / "quantized_original.png")
     return quantized_img
 
 

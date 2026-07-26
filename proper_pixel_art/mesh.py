@@ -43,7 +43,7 @@ def cluster_lines(lines: Lines, threshold: int = _DEFAULTS.cluster_threshold) ->
     return [int(np.median(cluster)) for cluster in clusters]
 
 
-def detect_grid_lines(edges: np.ndarray, mesh_config: MeshConfig | None = None) -> Mesh:
+def detect_mesh_lines(edges: np.ndarray, mesh_config: MeshConfig | None = None) -> Mesh:
     """
     - Use Hough line transformation to detect the pixel edges.
     - Only keep lines that are close to vertical or horizontal
@@ -585,10 +585,10 @@ def select_pixel_width(
     average away noise, antialiasing and smooth shading, without bound on
     smooth content), so a width no estimator produced is never adopted no
     matter how well it scores. The estimate is kept unless it scores more
-    than ``(1 + width_selection_tolerance)`` times the best candidate; a
+    than ``(1 + width_keep_tolerance)`` times the best candidate; a
     genuine harmonic lock-on (mesh cells spanning several true pixels) mixes
     distinct pixel colors and fails that check, in which case the largest
-    candidate scoring within ``(1 + width_replacement_tolerance)`` of the best
+    candidate scoring within ``(1 + width_replace_tolerance)`` of the best
     replaces it (largest-first avoids collapsing toward the small-cell
     advantage). With no acceptable replacement the estimate is kept.
 
@@ -630,12 +630,12 @@ def select_pixel_width(
 
     estimate = candidates[0]
     best_score = min(scores[w] for w in eligible)
-    keep_threshold = (1.0 + mesh_config.width_selection_tolerance) * best_score
+    keep_threshold = (1.0 + mesh_config.width_keep_tolerance) * best_score
     if estimate in scores and scores[estimate] <= keep_threshold:
         return estimate, scores
     # The estimate is decisively worse than another estimator's width;
     # replace it with the largest such width scoring close to the best.
-    replace_threshold = (1.0 + mesh_config.width_replacement_tolerance) * best_score
+    replace_threshold = (1.0 + mesh_config.width_replace_tolerance) * best_score
     for w in sorted(eligible, reverse=True):
         if scores[w] <= replace_threshold:
             return w, scores
@@ -668,7 +668,7 @@ def edges_from_grey(
 def compute_mesh_from_edges(
     closed_edges: np.ndarray,
     pixel_width: int | None = None,
-    output_dir: Path | None = None,
+    intermediate_dir: Path | None = None,
     original_img: Image.Image | None = None,
     mesh_config: MeshConfig | None = None,
     profiles: tuple[np.ndarray, np.ndarray] | None = None,
@@ -680,7 +680,7 @@ def compute_mesh_from_edges(
     Args:
         closed_edges: Binary edge map (uint8, values 0 or 255)
         pixel_width: If set, skips automatic pixel width detection
-        output_dir: If set, saves debug images (requires original_img)
+        intermediate_dir: If set, saves debug images (requires original_img)
         original_img: Original image for debug visualization overlays
         mesh_config: Tunable mesh-detection parameters (Hough, clustering, ...)
         profiles: Optional (profile_x, profile_y) 1-D projection profiles in
@@ -694,7 +694,7 @@ def compute_mesh_from_edges(
         The pixel mesh (mesh_x, mesh_y)
     """
     mesh_config = mesh_config or MeshConfig()
-    mesh_initial = detect_grid_lines(closed_edges, mesh_config)
+    mesh_initial = detect_mesh_lines(closed_edges, mesh_config)
 
     # Align anchors with gradient evidence before estimating the width from
     # their gaps and before homogenizing between them.
@@ -739,7 +739,7 @@ def compute_mesh_from_edges(
                 profiles,
                 candidates,
                 mesh_config,
-                debug_context=output_dir is not None,
+                debug_context=intermediate_dir is not None,
             )
             if pixel_width != estimated_width:
                 # Rare enough to be worth surfacing: it means the estimators
@@ -749,12 +749,12 @@ def compute_mesh_from_edges(
                     estimated_width,
                     pixel_width,
                 )
-            if output_dir is not None and width_scores:
+            if intermediate_dir is not None and width_scores:
                 lines = [
                     f"{w}\t{score:.4f}" + ("\t<- chosen" if w == pixel_width else "")
                     for w, score in sorted(width_scores.items())
                 ]
-                (output_dir / "width_scores.txt").write_text("\n".join(lines) + "\n")
+                (intermediate_dir / "width_scores.txt").write_text("\n".join(lines) + "\n")
 
     mesh_x = homogenize_lines(
         lines_x, pixel_width, profile=profile_x, mesh_config=mesh_config
@@ -764,24 +764,24 @@ def compute_mesh_from_edges(
     )
     mesh_final = mesh_x, mesh_y
 
-    if output_dir is not None:
+    if intermediate_dir is not None:
         edges_img = Image.fromarray(closed_edges, mode="L")
-        edges_img.save(output_dir / "closed_edges.png")
+        edges_img.save(intermediate_dir / "closed_edges.png")
 
         if original_img is not None:
-            img_with_lines = utils.overlay_grid_lines(original_img, mesh_initial)
-            img_with_lines.save(output_dir / "lines.png")
-            img_with_completed_lines = utils.overlay_grid_lines(
+            img_with_lines = utils.overlay_mesh_lines(original_img, mesh_initial)
+            img_with_lines.save(intermediate_dir / "lines.png")
+            img_with_completed_lines = utils.overlay_mesh_lines(
                 original_img, mesh_final
             )
-            img_with_completed_lines.save(output_dir / "mesh.png")
+            img_with_completed_lines.save(intermediate_dir / "mesh.png")
 
     return mesh_final
 
 
 def compute_mesh(
     img: Image.Image,
-    output_dir: Path | None = None,
+    intermediate_dir: Path | None = None,
     pixel_width: int | None = None,
     mesh_config: MeshConfig | None = None,
 ) -> Mesh:
@@ -794,7 +794,7 @@ def compute_mesh(
     - Completes mesh by filling in gaps between identified lines
     inputs:
         img: The image to compute the mesh
-        output_dir (optional): If set, saves images of steps in algorithm to dir
+        intermediate_dir (optional): If set, saves images of steps in algorithm to dir
         mesh_config: Tunable mesh-detection parameters (Canny, Hough, clustering, ...)
 
     output:
@@ -811,14 +811,14 @@ def compute_mesh(
     edges, closed_edges = edges_from_grey(grey, mesh_config=mesh_config)
     profiles = compute_gradient_profiles(grey)
 
-    if output_dir is not None:
+    if intermediate_dir is not None:
         edges_img = Image.fromarray(edges, mode="L")
-        edges_img.save(output_dir / "edges.png")
+        edges_img.save(intermediate_dir / "edges.png")
 
     return compute_mesh_from_edges(
         closed_edges,
         pixel_width=pixel_width,
-        output_dir=output_dir,
+        intermediate_dir=intermediate_dir,
         original_img=img,
         mesh_config=mesh_config,
         profiles=profiles,
@@ -829,7 +829,7 @@ def compute_mesh(
 def compute_mesh_with_scaling(
     img: Image.Image,
     upscale_factor: int = 2,
-    output_dir: Path | None = None,
+    intermediate_dir: Path | None = None,
     pixel_width: int | None = None,
     mesh_config: MeshConfig | None = None,
 ) -> tuple[Mesh, int]:
@@ -843,7 +843,7 @@ def compute_mesh_with_scaling(
     upscaled_img = utils.scale_img(img, upscale_factor)
     mesh_lines = compute_mesh(
         upscaled_img,
-        output_dir=output_dir,
+        intermediate_dir=intermediate_dir,
         pixel_width=pixel_width,
         mesh_config=mesh_config,
     )
@@ -852,7 +852,7 @@ def compute_mesh_with_scaling(
 
     # If no mesh is found, then use the original image instead.
     fallback_mesh_lines = compute_mesh(
-        img, output_dir=output_dir, pixel_width=pixel_width, mesh_config=mesh_config
+        img, intermediate_dir=intermediate_dir, pixel_width=pixel_width, mesh_config=mesh_config
     )
     return fallback_mesh_lines, 1
 
