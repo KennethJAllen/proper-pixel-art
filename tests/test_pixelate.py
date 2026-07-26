@@ -10,9 +10,10 @@ from itertools import product
 from pathlib import Path
 
 import numpy as np
+import reference_colors
 from PIL import Image
 
-from proper_pixel_art import colors, pixelate
+from proper_pixel_art import pixelate
 from proper_pixel_art.config import ColorConfig
 from proper_pixel_art.pixelate import build_cell_map, downsample
 from proper_pixel_art.utils import Mesh
@@ -64,7 +65,7 @@ def _downsample_reference(
         cell = img_array[y0:y1, x0:x1]
 
         if skip_quantization:
-            out[j, i] = colors.get_cell_color_skip_quantization(
+            out[j, i] = reference_colors.get_cell_color_skip_quantization(
                 cell,
                 alpha_threshold=color_config.alpha_threshold,
                 majority_fraction=color_config.transparency_majority_fraction,
@@ -72,14 +73,14 @@ def _downsample_reference(
             )
         elif original_alpha is not None:
             cell_alpha = original_alpha[y0:y1, x0:x1]
-            out[j, i] = colors.get_cell_color_with_alpha(
+            out[j, i] = reference_colors.get_cell_color_with_alpha(
                 cell,
                 cell_alpha,
                 alpha_threshold=color_config.alpha_threshold,
                 majority_fraction=color_config.transparency_majority_fraction,
             )
         else:
-            out[j, i] = colors.get_opaque_cell_color(cell)
+            out[j, i] = reference_colors.get_opaque_cell_color(cell)
 
     return Image.fromarray(out, mode="RGBA")
 

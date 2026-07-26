@@ -10,6 +10,7 @@ Pixelates animations in two passes for temporal consistency and speed:
    per-frame resizes).
 """
 
+import logging
 from collections import Counter
 from dataclasses import replace
 from fractions import Fraction
@@ -33,6 +34,8 @@ from proper_pixel_art.pixelate import (
     downsample_quantized,
 )
 from proper_pixel_art.utils import Mesh
+
+logger = logging.getLogger(__name__)
 
 # Keep a grid edge if it appears in at least this fraction of sampled frames.
 # In clean pixel-art video every content edge lies on the grid, so a low
@@ -359,36 +362,6 @@ class FramePipeline:
         return result
 
 
-def pixelate_frame(
-    frame: Image.Image,
-    mesh_lines: Mesh,
-    upscale_factor: int,
-    num_colors: int | None = None,
-    transparent_background: bool = False,
-    scale_result: int | None = None,
-) -> Image.Image:
-    """
-    Pixelate a single frame using an externally-provided mesh.
-
-    Convenience wrapper building a one-off :class:`FramePipeline`; when
-    processing many frames, build the pipeline once instead.
-    ``num_colors`` is the usual shorthand: >= 1 selects the palette method
-    with that palette size, 0 / None selects the dominant method.
-    """
-    frame_rgba = frame.convert("RGBA")
-    color_config = with_num_colors(PixelateConfig(), num_colors or 0).colors
-    pipeline = FramePipeline(
-        mesh_lines,
-        upscale_factor,
-        frame_rgba.size,
-        sample_frames=[frame_rgba],
-        transparent_background=transparent_background,
-        scale_result=scale_result,
-        color_config=color_config,
-    )
-    return pipeline.process(frame_rgba)
-
-
 def _write_mp4(
     frames_iter, output_path: Path, fps: float, frame_size: tuple[int, int]
 ) -> None:
@@ -407,7 +380,7 @@ def _write_mp4(
     # edge row/column (visually invisible for pixel art).
     out_w, out_h = width + width % 2, height + height % 2
 
-    print("Writing MP4 (libx264, crf 1)")
+    logger.info("Writing MP4 (libx264, crf 1)")
     with av.open(str(output_path), mode="w") as container:
         stream = container.add_stream(
             "libx264", rate=Fraction(fps).limit_denominator(65535)
@@ -578,8 +551,8 @@ def pixelate_video(
     output_is_dir = not output_path.suffix
 
     if cfg.transparent_background and output_format == "gif":
-        print(
-            "Warning: GIF only supports binary transparency. "
+        logger.warning(
+            "GIF only supports binary transparency. "
             "Results may not look as expected with --transparent."
         )
 
@@ -650,10 +623,10 @@ def pixelate_video(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_mp4(with_first(), output_path, info.fps, (first.width, first.height))
         if durations and max(durations) > 1.1 * min(durations):
-            print(
-                "Warning: input has variable frame durations; "
+            logger.warning(
+                "Input has variable frame durations; "
                 "MP4 output uses a constant frame rate."
             )
 
-    print(f"Saved pixelated video to {output_path}")
+    logger.info("Saved pixelated video to %s", output_path)
     return output_path

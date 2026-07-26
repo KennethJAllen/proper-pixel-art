@@ -1,6 +1,7 @@
 """Tests for the colors module."""
 
 import numpy as np
+import reference_colors
 from PIL import Image
 
 from proper_pixel_art import colors
@@ -24,13 +25,13 @@ class TestGetCellColor:
         cell[:6, :] = [255, 0, 0]  # 60 red pixels
         cell[6:, :] = [0, 0, 255]  # 40 blue pixels
 
-        result = colors.get_opaque_cell_color(cell)
+        result = reference_colors.get_opaque_cell_color(cell)
         assert result == (255, 0, 0, 255)
 
     def test_single_color(self):
         """Single color cell returns that color."""
         cell = np.full((5, 5, 3), [42, 84, 126], dtype=np.uint8)
-        result = colors.get_opaque_cell_color(cell)
+        result = reference_colors.get_opaque_cell_color(cell)
         assert result == (42, 84, 126, 255)
 
 
@@ -47,7 +48,7 @@ class TestGetCellColorWithAlpha:
         cell_alpha[:3, :] = 255  # 30% opaque (30 pixels)
         # Remaining 70% stays at 0 (transparent)
 
-        result = colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        result = reference_colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
         assert result == (0, 0, 0, 0)
 
     def test_majority_opaque_returns_most_common_color(self):
@@ -62,7 +63,7 @@ class TestGetCellColorWithAlpha:
         cell_alpha[:7, :] = 255  # 70% opaque
         # Remaining 30% transparent
 
-        result = colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        result = reference_colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
         assert result == (255, 0, 0, 255)  # Most common color (red) with full opacity
 
     def test_exactly_50_percent_transparent_returns_transparent(self):
@@ -74,7 +75,7 @@ class TestGetCellColorWithAlpha:
         cell_alpha[:5, :] = 255  # 50% opaque
         # Remaining 50% transparent
 
-        result = colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        result = reference_colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
         assert result == (0, 0, 0, 0)
 
     def test_single_color_all_opaque(self):
@@ -82,7 +83,7 @@ class TestGetCellColorWithAlpha:
         cell_pixels = np.full((5, 5, 3), [42, 84, 126], dtype=np.uint8)
         cell_alpha = np.full((5, 5), 255, dtype=np.uint8)  # All opaque
 
-        result = colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        result = reference_colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
         assert result == (42, 84, 126, 255)
 
     def test_most_common_color_selected_from_quantized(self):
@@ -95,7 +96,7 @@ class TestGetCellColorWithAlpha:
         # All pixels opaque
         cell_alpha = np.full((10, 10), 255, dtype=np.uint8)
 
-        result = colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
+        result = reference_colors.get_cell_color_with_alpha(cell_pixels, cell_alpha)
         assert result == (200, 50, 25, 255)
 
 
@@ -110,7 +111,7 @@ class TestGetCellColorSkipQuantization:
         """Cell with single color returns that color."""
         rgb = np.full((10, 10, 3), [255, 0, 0], dtype=np.uint8)
         cell = _make_rgba(rgb)
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         assert result == (255, 0, 0, 255)
 
     def test_uniform_with_outliers_filters_outliers(self):
@@ -121,7 +122,7 @@ class TestGetCellColorSkipQuantization:
         rgb[0, 1] = [0, 255, 0]  # Green outlier - different bin
         cell = _make_rgba(rgb)
 
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         r, g, b, a = result
         # Should be close to the dominant color (200, 100, 50), not skewed by outliers
         assert 190 <= r <= 210, f"Expected r near 200, got {r}"
@@ -136,7 +137,7 @@ class TestGetCellColorSkipQuantization:
         rgb[7:, :] = [0, 0, 255]  # 30% blue (bin 0,0,7)
         cell = _make_rgba(rgb)
 
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         r, g, b, a = result
         # Should be close to red (the dominant color)
         assert r > 200, f"Expected red-dominant result, got {result}"
@@ -156,7 +157,7 @@ class TestGetCellColorSkipQuantization:
                 rgb[i, j] = [(i + j) % 5, (i - j) % 5, 250 + (i * j % 6)]
         cell = _make_rgba(rgb)
 
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         r, g, b, a = result
         # Result should be red (the dominant color bin)
         assert r > 200, f"Expected red dominant, got {result}"
@@ -171,7 +172,7 @@ class TestGetCellColorSkipQuantization:
                 rgb[i, j, 0] = 50 + i * 15 + j  # Red varies ~50-200
         cell = _make_rgba(rgb)
 
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         r, g, b, a = result
         # Result should be somewhere in the gradient range (mode bin + neighbors)
         assert 50 <= r <= 200, f"Red channel out of expected range, got {result}"
@@ -183,7 +184,7 @@ class TestGetCellColorSkipQuantization:
             [[[255, 0, 0], [255, 0, 0]], [[0, 0, 255], [0, 255, 0]]], dtype=np.uint8
         )
         cell = _make_rgba(rgb)
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         assert len(result) == 4
         assert all(0 <= c <= 255 for c in result)
         assert result[3] == 255  # Alpha should be opaque
@@ -192,13 +193,13 @@ class TestGetCellColorSkipQuantization:
         """Single pixel cell returns that pixel's color."""
         rgb = np.array([[[128, 64, 32]]], dtype=np.uint8)
         cell = _make_rgba(rgb)
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         assert result == (128, 64, 32, 255)
 
     def test_empty_cell(self):
         """Empty cell (0 pixels) returns transparent."""
         cell = np.zeros((0, 0, 4), dtype=np.uint8)
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         assert result == (0, 0, 0, 0)
 
     def test_bin_boundary_handled(self):
@@ -212,7 +213,7 @@ class TestGetCellColorSkipQuantization:
                 rgb[i, j] = [val, val, val]
         cell = _make_rgba(rgb)
 
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         r, g, b, a = result
         # Should include all pixels via neighbor merging, average ~32
         assert 27 <= r <= 37, f"Expected value near 32, got {r}"
@@ -242,7 +243,7 @@ class TestGetCellColorSkipQuantization:
                 ]
         cell = _make_rgba(rgb)
 
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         r, g, b, a = result
         # Green should be meaningfully higher than red/blue
         # (showing green tint, not just dark gray)
@@ -257,7 +258,7 @@ class TestGetCellColorSkipQuantization:
         cell[:4, :, 3] = 255
         cell[4:, :, 3] = 0  # 60% transparent
 
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         assert result == (0, 0, 0, 0)
 
     def test_majority_opaque_returns_opaque_color(self):
@@ -267,7 +268,7 @@ class TestGetCellColorSkipQuantization:
         cell[:6, :, 3] = 255
         cell[6:, :, 3] = 0  # 40% transparent
 
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         r, g, b, a = result
         assert a == 255
         assert 90 <= r <= 110
@@ -279,7 +280,7 @@ class TestGetCellColorSkipQuantization:
         cell[:5, :, 3] = 255
         cell[5:, :, 3] = 0  # 50% transparent
 
-        result = colors.get_cell_color_skip_quantization(cell)
+        result = reference_colors.get_cell_color_skip_quantization(cell)
         assert result == (0, 0, 0, 0)
 
 

@@ -70,8 +70,7 @@ def _transparent_cells(
     """Boolean per-cell mask of cells that should be fully transparent.
 
     A cell is transparent when at least ``majority_fraction`` of its pixels are
-    transparent (same rule as ``colors._is_majority_transparent``). Empty cells
-    are transparent too.
+    transparent. Empty cells are transparent too.
     """
     opaque_counts = np.bincount(cid[opaque_mask], minlength=cell_map.n_cells)
     return opaque_counts <= cell_map.cell_sizes * (1 - majority_fraction)
@@ -123,8 +122,7 @@ def downsample_binned(
     color_config: ColorConfig,
 ) -> np.ndarray:
     """
-    Vectorized port of the per-cell ``colors.get_cell_color_skip_quantization``:
-    per-cell dominant color via offset binning (two half-shifted bin grids, the
+    Per-cell dominant color via offset binning (two half-shifted bin grids, the
     grid with the larger dominant bin wins) followed by the per-channel median
     of the dominant bin. Returns an (n_rows, n_cols, 4) uint8 RGBA array.
     """

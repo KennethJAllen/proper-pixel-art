@@ -1,5 +1,6 @@
 """Handles mesh detection from pixel art style images"""
 
+import logging
 from pathlib import Path
 
 import cv2
@@ -9,6 +10,8 @@ from PIL import Image
 from proper_pixel_art import colors, utils
 from proper_pixel_art.config import MeshConfig
 from proper_pixel_art.utils import Lines, Mesh
+
+logger = logging.getLogger(__name__)
 
 # Shared defaults so the helpers below don't re-declare literals; MeshConfig
 # holds the canonical values.
@@ -662,28 +665,6 @@ def edges_from_grey(
     return edges, closed_edges
 
 
-def compute_edge_map(
-    img: Image.Image,
-    mesh_config: MeshConfig | None = None,
-) -> np.ndarray:
-    """
-    Compute a closed edge map from an image.
-    Crops border, clamps alpha, runs Canny edge detection, and applies
-    morphological closing to fill small gaps.
-
-    Args:
-        img: RGBA PIL image
-        mesh_config: Tunable mesh-detection parameters (Canny, closing, ...)
-
-    Returns:
-        Binary edge map as numpy array (uint8, values 0 or 255)
-    """
-    mesh_config = mesh_config or MeshConfig()
-    grey = compute_grey(img, mesh_config=mesh_config)
-    _, closed_edges = edges_from_grey(grey, mesh_config=mesh_config)
-    return closed_edges
-
-
 def compute_mesh_from_edges(
     closed_edges: np.ndarray,
     pixel_width: int | None = None,
@@ -763,9 +744,10 @@ def compute_mesh_from_edges(
             if pixel_width != estimated_width:
                 # Rare enough to be worth surfacing: it means the estimators
                 # locked onto a harmonic of the true pixel width.
-                print(
-                    "width validation: overriding estimated pixel width "
-                    f"{estimated_width} -> {pixel_width}"
+                logger.info(
+                    "width validation: overriding estimated pixel width %s -> %s",
+                    estimated_width,
+                    pixel_width,
                 )
             if output_dir is not None and width_scores:
                 lines = [

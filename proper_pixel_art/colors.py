@@ -18,15 +18,6 @@ _DEFAULTS = ColorConfig()
 ALPHA_THRESHOLD = _DEFAULTS.alpha_threshold  # alpha >= this is opaque
 
 
-def _is_majority_transparent(
-    opaque_count: int,
-    total_count: int,
-    majority_fraction: float = _DEFAULTS.transparency_majority_fraction,
-) -> bool:
-    """Cell is transparent if at least ``majority_fraction`` of pixels are transparent."""
-    return opaque_count <= total_count * (1 - majority_fraction)
-
-
 def _rgb_dist(a: RGB, b: RGB) -> int:
     """Naive color distance"""
     dr, dg, db = a[0] - b[0], a[1] - b[1], a[2] - b[2]
@@ -139,45 +130,6 @@ def extract_and_scale_alpha(image: Image.Image, scale_factor: int = 1) -> np.nda
         return alpha_channel
 
 
-def get_opaque_cell_color(cell_pixels: np.ndarray) -> RGBA:
-    """
-    cell_pixels: shape (height_cell, width_cell, 3), dtype=uint8
-    returns the most frequent RGB tuple in the cell_pixels block, with 255 in fourth entry for opaque alpha.
-    """
-    flat = list(map(tuple, cell_pixels.reshape(-1, 3)))
-    cell_color = Counter(flat).most_common(1)[0][0]
-    return (*cell_color, 255)
-
-
-def get_cell_color_with_alpha(
-    cell_pixels: np.ndarray,
-    cell_alpha: np.ndarray,
-    alpha_threshold: int = ALPHA_THRESHOLD,
-    majority_fraction: float = _DEFAULTS.transparency_majority_fraction,
-) -> RGBA:
-    """
-    Select a representative color for a quantized cell, honoring transparency.
-
-    If at least ``majority_fraction`` of the cell's pixels are transparent
-    (alpha < alpha_threshold), the cell becomes fully transparent (0,0,0,0);
-    otherwise it takes the most common RGB color at full opacity (R,G,B,255).
-
-    Args:
-        cell_pixels: shape (height, width, 3), dtype=uint8 (RGB from quantized image).
-        cell_alpha: shape (height, width), dtype=uint8 (alpha from the original image).
-    """
-    total_pixels = cell_alpha.size
-    opaque_count = np.sum(cell_alpha >= alpha_threshold)
-
-    # If enough of the cell is transparent (see majority_fraction), return fully transparent
-    if _is_majority_transparent(opaque_count, total_pixels, majority_fraction):
-        return (0, 0, 0, 0)
-
-    # Otherwise return most common color with full opacity
-    cell_color = get_opaque_cell_color(cell_pixels)
-    return cell_color
-
-
 def dominant_rgb_by_binning(
     rgb_pixels: np.ndarray, bin_size: int = _DEFAULTS.dominant.bin_size
 ) -> RGB:
@@ -233,46 +185,6 @@ def dominant_rgb_by_binning(
 
     # Return median of dominant bin (robust to outliers within bin)
     return tuple(np.median(dominant_pixels, axis=0).astype(np.uint8))
-
-
-def get_cell_color_skip_quantization(
-    cell_pixels: np.ndarray,
-    alpha_threshold: int = ALPHA_THRESHOLD,
-    majority_fraction: float = _DEFAULTS.transparency_majority_fraction,
-    bin_size: int = _DEFAULTS.dominant.bin_size,
-) -> RGBA:
-    """
-    Select a representative RGBA color for a cell when quantization is skipped.
-
-    Preserves original colors while suppressing noise/grain and background
-    bleed-in. If at least ``majority_fraction`` of the cell is transparent
-    (alpha < alpha_threshold) the cell becomes fully transparent (0,0,0,0);
-    otherwise the dominant color of the opaque pixels (via offset binning) is
-    returned at full opacity.
-
-    Args:
-        cell_pixels: shape (height, width, 4), dtype=uint8 (RGBA).
-        alpha_threshold: minimum alpha for a pixel to count as opaque.
-    """
-    pixels = cell_pixels.reshape(-1, 4)
-    total_pixels = len(pixels)
-
-    # Edge case: empty cell
-    if total_pixels == 0:
-        return (0, 0, 0, 0)
-
-    # Filter to opaque pixels only
-    opaque_mask = pixels[:, 3] >= alpha_threshold
-    opaque_pixels = pixels[opaque_mask]
-
-    # If enough of the cell is transparent (see majority_fraction), return fully transparent
-    if _is_majority_transparent(len(opaque_pixels), total_pixels, majority_fraction):
-        return (0, 0, 0, 0)
-
-    # Get RGB of opaque pixels and find dominant color
-    rgb_pixels = opaque_pixels[:, :3]
-    r, g, b = dominant_rgb_by_binning(rgb_pixels, bin_size=bin_size)
-    return (int(r), int(g), int(b), 255)
 
 
 # Unseen colors are matched against representatives in chunks of this many
@@ -500,14 +412,3 @@ def make_background_transparent(image: Image.Image) -> Image.Image:
     not just boundary pixels (no flood fill).
     """
     return apply_background_transparency(image, most_common_boundary_color(image))
-
-
-def main():
-    img_path = Path.cwd() / "assets" / "blob" / "blob.png"
-    img = Image.open(img_path).convert("RGBA")
-    paletted = palette_img(img)
-    paletted.show()
-
-
-if __name__ == "__main__":
-    main()
