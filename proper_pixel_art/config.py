@@ -15,6 +15,15 @@ from PIL.Image import Dither, Quantize
 
 RGB = tuple[int, int, int]
 
+# Schema version read by this release; YAML configs may declare it as a
+# top-level ``version`` key.
+CONFIG_VERSION = 2
+
+_CHANGELOG_HINT = (
+    " If this config was written for a release before 2.0.0, "
+    "see CHANGELOG.md for the key changes."
+)
+
 
 @dataclass
 class HoughConfig:
@@ -51,10 +60,10 @@ class MeshConfig:
         1.8  # per-axis width estimates further apart than this -> smaller wins
     )
     validate_width: bool = True  # score candidate widths by within-cell variance
-    width_selection_tolerance: float = (
+    width_keep_tolerance: float = (
         1.5  # replace the estimated width only when it scores (1 + this) x the best
     )
-    width_replacement_tolerance: float = (
+    width_replace_tolerance: float = (
         0.2  # on correction, accept a replacement scoring within (1 + this) x the best
     )
     profile_width_min_gaps: int = (
@@ -182,21 +191,70 @@ class ColorConfig:
 
 
 @dataclass
-class PixelateConfig:
-    """Top-level configuration for :func:`proper_pixel_art.pixelate.pixelate`.
+class VideoConfig:
+    """Parameters for the video/GIF pipeline (ignored for still images)."""
 
-    Two fields use numeric sentinels rather than ``None`` for their special
-    states, leaving ``None`` free to mean "not provided" in ``pixelate`` kwargs:
-    ``scale_result=1`` means no scaling and ``pixel_width=0`` auto-detects the
-    pixel width. The quantization method is selected by ``colors.method``.
+    output_format: str = "gif"  # "gif" or "mp4"; an explicit output suffix wins
+    num_sample_frames: int = 8  # frames sampled for mesh/palette detection
+    # Keep a grid edge if it appears in at least this fraction of sampled
+    # frames. In clean pixel-art video every content edge lies on the grid, so
+    # a low threshold strengthens the Hough evidence; requiring more than one
+    # frame still suppresses single-frame compression noise. A strict majority
+    # vote would erase grid segments only visible where moving content happens
+    # to create contrast.
+    min_vote_fraction: float = 0.25
+
+    def __post_init__(self) -> None:
+        if self.output_format not in ("gif", "mp4"):
+            raise ValueError(
+                f"Unknown output_format {self.output_format!r}. "
+                f"Valid options: gif, mp4."
+            )
+        if self.num_sample_frames < 1:
+            raise ValueError(
+                f"num_sample_frames must be >= 1, got {self.num_sample_frames}."
+            )
+        if not 0 < self.min_vote_fraction <= 1:
+            raise ValueError(
+                f"min_vote_fraction must be in (0, 1], got {self.min_vote_fraction}."
+            )
+
+
+@dataclass
+class PixelateConfig:
+    """Top-level configuration for :func:`proper_pixel_art.image.pixelate`.
+
+    ``scale_result=None`` means no output scaling and ``pixel_width=None``
+    auto-detects the pixel width. The quantization method is selected by
+    ``colors.method``.
     """
 
     initial_upscale_factor: int = 2
-    scale_result: int = 1
+    scale_result: int | None = None
     transparent_background: bool = False
-    pixel_width: int = 0
+    pixel_width: int | None = None
     mesh: MeshConfig = field(default_factory=MeshConfig)
     colors: ColorConfig = field(default_factory=ColorConfig)
+    video: VideoConfig = field(default_factory=VideoConfig)
+
+    def __post_init__(self) -> None:
+        # 0 was the pre-2.0 "auto"/"no scaling" sentinel; reject it loudly so
+        # old configs fail with a pointer instead of silently misbehaving.
+        if self.scale_result is not None and self.scale_result < 1:
+            raise ValueError(
+                f"scale_result must be >= 1 or null, got {self.scale_result}."
+                + _CHANGELOG_HINT
+            )
+        if self.pixel_width is not None and self.pixel_width < 1:
+            raise ValueError(
+                f"pixel_width must be >= 1 or null (auto-detect), got "
+                f"{self.pixel_width}." + _CHANGELOG_HINT
+            )
+        if self.initial_upscale_factor < 1:
+            raise ValueError(
+                f"initial_upscale_factor must be >= 1, "
+                f"got {self.initial_upscale_factor}."
+            )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "PixelateConfig":
@@ -211,11 +269,22 @@ class PixelateConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "PixelateConfig":
-        """Build a config from a (possibly partial, nested) dict."""
+        """Build a config from a (possibly partial, nested) dict.
+
+        An optional top-level ``version`` key declares the schema version; when
+        present it must be ``2`` (the schema this release reads).
+        """
         data = dict(data)
+        version = data.pop("version", None)
+        if version is not None and version != CONFIG_VERSION:
+            raise ValueError(
+                f"Unsupported config version {version!r}; this release reads "
+                f"version {CONFIG_VERSION} configs." + _CHANGELOG_HINT
+            )
         # Copy nested dicts before popping so the caller's input isn't mutated.
         mesh_data = dict(data.pop("mesh", None) or {})
         colors_data = dict(data.pop("colors", None) or {})
+        video_data = dict(data.pop("video", None) or {})
         hough_data = dict(mesh_data.pop("hough", None) or {})
         palette_data = dict(colors_data.pop("palette", None) or {})
         dominant_data = dict(colors_data.pop("dominant", None) or {})
@@ -227,44 +296,8 @@ class PixelateConfig:
             palette=_build(PaletteConfig, palette_data),
             dominant=_build(DominantConfig, dominant_data),
         )
-        return _build(cls, data, mesh=mesh, colors=colors)
-
-
-def with_num_colors(cfg: PixelateConfig, num_colors: int) -> PixelateConfig:
-    """Return a copy of ``cfg`` with the ``num_colors`` shorthand applied.
-
-    ``num_colors > 0`` selects the palette method with that palette size;
-    ``num_colors == 0`` selects the dominant method. This is the mapping behind
-    the CLI ``-c`` flag and the ``pixelate(num_colors=...)`` kwarg.
-    """
-    if num_colors:
-        colors = replace(
-            cfg.colors,
-            method="palette",
-            palette=replace(cfg.colors.palette, num_colors=num_colors),
-        )
-    else:
-        colors = replace(cfg.colors, method="dominant")
-    return replace(cfg, colors=colors)
-
-
-# Keys the 1.8.0 color-method split moved out of their old dataclass, so a
-# pre-1.8.0 YAML gets told where the setting went instead of a bare
-# "unknown key". Keyed by the dataclass the key used to live on.
-_MOVED_KEYS: dict[str, dict[str, str]] = {
-    "PixelateConfig": {
-        "num_colors": (
-            "moved to colors.palette.num_colors "
-            "(colors.method: palette selects that method)"
-        ),
-    },
-    "ColorConfig": {
-        "num_colors": "moved to colors.palette.num_colors",
-        "quantize_method": "moved to colors.palette.quantize_method",
-        "bin_size": "moved to colors.dominant.bin_size",
-        "output_color_merge_distance": "moved to colors.dominant.merge_distance",
-    },
-}
+        video = _build(VideoConfig, video_data)
+        return _build(cls, data, mesh=mesh, colors=colors, video=video)
 
 
 def _build(dc_type, data: dict, **nested):
@@ -279,12 +312,10 @@ def _build(dc_type, data: dict, **nested):
     valid = {f.name for f in fields(dc_type)}
     unknown = set(data) - valid
     if unknown:
-        moved = _MOVED_KEYS.get(dc_type.__name__, {})
-        hints = [f"{key!r} {moved[key]}" for key in sorted(unknown) if key in moved]
-        message = f"Unknown config key(s) for {dc_type.__name__}: {sorted(unknown)}"
-        if hints:
-            message += ". " + "; ".join(hints)
-        raise ValueError(message)
+        raise ValueError(
+            f"Unknown config key(s) for {dc_type.__name__}: {sorted(unknown)}."
+            + _CHANGELOG_HINT
+        )
     overrides = dict(nested)
     for key, value in data.items():
         if isinstance(getattr(base, key), tuple) and isinstance(value, list):

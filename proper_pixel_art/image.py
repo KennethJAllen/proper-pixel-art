@@ -1,13 +1,13 @@
 """Main functions for pixelating an image with the pixelate function"""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
 from proper_pixel_art import colors, mesh, utils
-from proper_pixel_art.config import ColorConfig, PixelateConfig, with_num_colors
+from proper_pixel_art.config import ColorConfig, PixelateConfig
 from proper_pixel_art.utils import Mesh
 
 
@@ -70,8 +70,7 @@ def _transparent_cells(
     """Boolean per-cell mask of cells that should be fully transparent.
 
     A cell is transparent when at least ``majority_fraction`` of its pixels are
-    transparent (same rule as ``colors._is_majority_transparent``). Empty cells
-    are transparent too.
+    transparent. Empty cells are transparent too.
     """
     opaque_counts = np.bincount(cid[opaque_mask], minlength=cell_map.n_cells)
     return opaque_counts <= cell_map.cell_sizes * (1 - majority_fraction)
@@ -123,8 +122,7 @@ def downsample_binned(
     color_config: ColorConfig,
 ) -> np.ndarray:
     """
-    Vectorized port of the per-cell ``colors.get_cell_color_skip_quantization``:
-    per-cell dominant color via offset binning (two half-shifted bin grids, the
+    Per-cell dominant color via offset binning (two half-shifted bin grids, the
     grid with the larger dominant bin wins) followed by the per-channel median
     of the dominant bin. Returns an (n_rows, n_cols, 4) uint8 RGBA array.
     """
@@ -263,77 +261,59 @@ def downsample(
     return Image.fromarray(out, mode="RGBA")
 
 
+@dataclass
+class PixelateResult:
+    """Result of :func:`pixelate`.
+
+    Attributes:
+        image: The true-resolution RGBA output (after color merging,
+            transparency, and result scaling).
+        mesh: (lines_x, lines_y) pixel-grid coordinates in the upscaled input
+            frame (the input scaled by ``upscale_factor``).
+        pixel_width: The input-image pixel width used (detected or configured),
+            in upscaled coordinates.
+        upscale_factor: The internal upscale factor ``mesh`` and
+            ``pixel_width`` refer to; divide by it for original-image
+            coordinates.
+    """
+
+    image: Image.Image
+    mesh: Mesh
+    pixel_width: int
+    upscale_factor: int
+
+
 def pixelate(
     image: Image.Image,
-    num_colors: int | None = None,
-    initial_upscale_factor: int | None = None,
-    scale_result: int | None = None,
-    transparent_background: bool | None = None,
-    intermediate_dir: Path | None = None,
-    pixel_width: int | None = None,
     config: PixelateConfig | None = None,
-) -> Image.Image:
+    intermediate_dir: Path | None = None,
+) -> PixelateResult:
     """
     Computes the true resolution pixel art image.
-
-    Every parameter below defaults to ``None``, meaning "not provided" — the
-    value is taken from ``config`` (or the built-in defaults). Pass a concrete
-    value to override the config.
 
     inputs:
     - image:
         A PIL image to pixelate.
-    - num_colors:
-        Shorthand for the config's colors.method selection: a value >= 1
-        selects the palette method with that palette size, 0 selects the
-        dominant method (original colors preserved).
-        When quantizing, this is an important parameter to tune,
-        if it is too high, pixels that should be the same color will be different colors
-        if it is too low, pixels that should be different colors will be the same color
-    - scale_result:
-        Upsample result by scale_result factor after algorithm is complete.
-        Use 1 for no scaling.
-    - initial_upscale_factor:
-        Upsample original image by this factor. It may help detect lines.
-    - transparent_background:
-        If True, makes pixels matching the most common boundary color transparent.
-        Applied after preserving original image transparency.
+    - config:
+        A PixelateConfig bundling every tunable parameter (color method,
+        pixel width, scaling, mesh detection, ...). Load one from YAML with
+        PixelateConfig.from_yaml; defaults are used when omitted.
     - intermediate_dir:
         directory to save images visualizing intermediate steps.
-    - pixel_width:
-        Width of the pixels in the input image. Use 0 to detect it automatically.
-    - config:
-        A PixelateConfig bundling every tunable parameter. Load one from YAML
-        with PixelateConfig.from_yaml. Any of the explicit arguments above,
-        when provided (not None), override the corresponding value in config.
 
-    Returns the true pixelated image.
+    Returns a PixelateResult carrying the pixelated image plus the detected
+    mesh and pixel width.
     """
-    # Resolution order: explicit argument > config > built-in defaults.
     cfg = config if config is not None else PixelateConfig()
-    overrides = {
-        name: value
-        for name, value in (
-            ("initial_upscale_factor", initial_upscale_factor),
-            ("scale_result", scale_result),
-            ("transparent_background", transparent_background),
-            ("pixel_width", pixel_width),
-        )
-        if value is not None
-    }
-    if overrides:
-        cfg = replace(cfg, **overrides)
-    if num_colors is not None:
-        cfg = with_num_colors(cfg, num_colors)
 
     image_rgba = image.convert("RGBA")
 
     # Calculate the pixel mesh lines
-    mesh_lines, upscale_factor = mesh.compute_mesh_with_scaling(
+    mesh_lines, upscale_factor, pixel_width = mesh.compute_mesh_with_scaling(
         image_rgba,
         cfg.initial_upscale_factor,
-        output_dir=intermediate_dir,
-        pixel_width=cfg.pixel_width or None,  # 0 / None -> auto-detect
+        intermediate_dir=intermediate_dir,
+        pixel_width=cfg.pixel_width,
         mesh_config=cfg.mesh,
     )
 
@@ -346,7 +326,7 @@ def pixelate(
         processed_img = colors.palette_img(
             image_rgba,
             color_config=cfg.colors,
-            output_dir=intermediate_dir,
+            intermediate_dir=intermediate_dir,
         )
 
     # Scale the processed image to match the dimensions for the calculated mesh
@@ -374,15 +354,19 @@ def pixelate(
     if skip_quantization and cfg.colors.dominant.merge_distance > 0:
         result = colors.merge_output_colors(
             result,
-            cfg.colors.dominant.merge_distance,
-            linkage=cfg.colors.dominant.merge_linkage,
-            max_colors=cfg.colors.dominant.max_linkage_colors,
+            cfg.colors.dominant,
+            alpha_threshold=cfg.colors.alpha_threshold,
         )
 
     if cfg.transparent_background:
         result = colors.make_background_transparent(result)
 
-    if (cfg.scale_result or 1) > 1:
+    if cfg.scale_result is not None and cfg.scale_result > 1:
         result = utils.scale_img(result, int(cfg.scale_result))
 
-    return result
+    return PixelateResult(
+        image=result,
+        mesh=mesh_lines,
+        pixel_width=pixel_width,
+        upscale_factor=upscale_factor,
+    )

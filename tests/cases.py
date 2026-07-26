@@ -1,7 +1,8 @@
 """Canonical pixelation cases: the single source of truth shared by the smoke
 test (``tests/test_pixelate.py``) and ``scripts/gen_outputs.py``.
 
-Each case maps an asset name to its pixelation parameters and input image path.
+Each case maps an asset name to its input image path and a config dict for
+``PixelateConfig.from_dict``.
 """
 
 from pathlib import Path
@@ -15,14 +16,20 @@ def _case(
     name: str,
     *,
     num_colors: int,
-    result_scale: int,
+    scale_result: int,
     transparent_background: bool,
 ) -> dict:
+    if num_colors:
+        colors = {"method": "palette", "palette": {"num_colors": num_colors}}
+    else:
+        colors = {"method": "dominant"}
     return {
         "name": name,
-        "num_colors": num_colors,
-        "result_scale": result_scale,
-        "transparent_background": transparent_background,
+        "config": {
+            "scale_result": scale_result,
+            "transparent_background": transparent_background,
+            "colors": colors,
+        },
         "path": ASSETS / name / f"{name}.png",
     }
 
@@ -31,17 +38,17 @@ def _case(
 PIXELATE_PNG_CASES: dict[str, dict] = {
     # Transparent background with an interior hole.
     "anchor": _case(
-        "anchor", num_colors=16, result_scale=5, transparent_background=True
+        "anchor", num_colors=16, scale_result=5, transparent_background=True
     ),
-    "ash": _case("ash", num_colors=16, result_scale=5, transparent_background=False),
-    "bat": _case("bat", num_colors=16, result_scale=5, transparent_background=True),
-    "blob": _case("blob", num_colors=16, result_scale=25, transparent_background=False),
-    "demon": _case("demon", num_colors=64, result_scale=5, transparent_background=True),
+    "ash": _case("ash", num_colors=16, scale_result=5, transparent_background=False),
+    "bat": _case("bat", num_colors=16, scale_result=5, transparent_background=True),
+    "blob": _case("blob", num_colors=16, scale_result=25, transparent_background=False),
+    "demon": _case("demon", num_colors=64, scale_result=5, transparent_background=True),
     "mountain": _case(
-        "mountain", num_colors=64, result_scale=5, transparent_background=False
+        "mountain", num_colors=64, scale_result=5, transparent_background=False
     ),
-    # Skips quantization (num_colors=0 preserves all colors).
+    # Preserves original colors (dominant method, no quantization).
     "pumpkin": _case(
-        "pumpkin", num_colors=0, result_scale=5, transparent_background=False
+        "pumpkin", num_colors=0, scale_result=5, transparent_background=False
     ),
 }

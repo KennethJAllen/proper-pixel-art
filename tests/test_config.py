@@ -1,6 +1,5 @@
 """Tests for the YAML/dataclass config and its integration with pixelate."""
 
-import re
 from pathlib import Path
 
 import numpy as np
@@ -15,7 +14,7 @@ from proper_pixel_art.config import (
     MeshConfig,
     PaletteConfig,
     PixelateConfig,
-    with_num_colors,
+    VideoConfig,
 )
 
 EXAMPLE_CONFIG = Path(__file__).parent.parent / "config.example.yaml"
@@ -77,11 +76,11 @@ def test_from_dict_partial_deep_merge():
     assert cfg.colors.dominant.bin_size == 52
 
 
-def test_width_replacement_tolerance_config():
-    """width_replacement_tolerance defaults to 0.2 and round-trips from a dict."""
-    assert MeshConfig().width_replacement_tolerance == 0.2
-    cfg = PixelateConfig.from_dict({"mesh": {"width_replacement_tolerance": 0.5}})
-    assert cfg.mesh.width_replacement_tolerance == 0.5
+def test_width_replace_tolerance_config():
+    """width_replace_tolerance defaults to 0.2 and round-trips from a dict."""
+    assert MeshConfig().width_replace_tolerance == 0.2
+    cfg = PixelateConfig.from_dict({"mesh": {"width_replace_tolerance": 0.5}})
+    assert cfg.mesh.width_replace_tolerance == 0.5
 
 
 def test_from_dict_does_not_mutate_input():
@@ -124,44 +123,53 @@ def test_unknown_key_raises():
         PixelateConfig.from_dict({"colors": {"dominant": {"bogus": 1}}})
 
 
-def test_old_flat_keys_raise():
-    """Pre-split keys are gone: the unknown-key check must reject them."""
-    with pytest.raises(ValueError, match="Unknown config key"):
-        PixelateConfig.from_dict({"num_colors": 8})
-    with pytest.raises(ValueError, match="Unknown config key"):
-        PixelateConfig.from_dict({"colors": {"quantize_method": "FASTOCTREE"}})
-    with pytest.raises(ValueError, match="Unknown config key"):
-        PixelateConfig.from_dict({"colors": {"bin_size": 30}})
-    with pytest.raises(ValueError, match="Unknown config key"):
-        PixelateConfig.from_dict({"colors": {"output_color_merge_distance": 6}})
+def test_old_flat_keys_raise_with_changelog_hint():
+    """Pre-2.0 keys are gone: they fail with a pointer at the CHANGELOG."""
+    for data in (
+        {"num_colors": 8},
+        {"colors": {"quantize_method": "FASTOCTREE"}},
+        {"colors": {"bin_size": 30}},
+        {"colors": {"output_color_merge_distance": 6}},
+    ):
+        with pytest.raises(ValueError, match="CHANGELOG"):
+            PixelateConfig.from_dict(data)
 
 
-@pytest.mark.parametrize(
-    ("data", "new_location"),
-    [
-        ({"num_colors": 8}, "colors.palette.num_colors"),
-        (
-            {"colors": {"quantize_method": "FASTOCTREE"}},
-            "colors.palette.quantize_method",
-        ),
-        ({"colors": {"bin_size": 30}}, "colors.dominant.bin_size"),
-        (
-            {"colors": {"output_color_merge_distance": 6}},
-            "colors.dominant.merge_distance",
-        ),
-    ],
-)
-def test_moved_keys_point_at_new_location(data, new_location):
-    """A pre-split key names where its setting went, not just that it is unknown."""
-    with pytest.raises(ValueError, match=f"moved to {re.escape(new_location)}"):
-        PixelateConfig.from_dict(data)
+def test_version_key_accepted():
+    """An explicit version: 2 is accepted and stripped."""
+    assert PixelateConfig.from_dict({"version": 2}) == PixelateConfig()
 
 
-def test_unknown_key_has_no_move_hint():
-    """A genuinely unknown key gets the plain error, with no bogus hint."""
-    with pytest.raises(ValueError, match="Unknown config key") as excinfo:
-        PixelateConfig.from_dict({"colors": {"bogus": 1}})
-    assert "moved to" not in str(excinfo.value)
+def test_wrong_version_raises():
+    with pytest.raises(ValueError, match="Unsupported config version"):
+        PixelateConfig.from_dict({"version": 1})
+
+
+def test_zero_sentinels_raise():
+    """The pre-2.0 numeric sentinels fail loudly with a CHANGELOG pointer."""
+    with pytest.raises(ValueError, match="CHANGELOG"):
+        PixelateConfig(pixel_width=0)
+    with pytest.raises(ValueError, match="CHANGELOG"):
+        PixelateConfig(scale_result=0)
+
+
+def test_none_sentinels_are_defaults():
+    cfg = PixelateConfig()
+    assert cfg.scale_result is None
+    assert cfg.pixel_width is None
+
+
+def test_video_config_defaults_and_validation():
+    cfg = PixelateConfig.from_dict({"video": {"output_format": "mp4"}})
+    assert cfg.video.output_format == "mp4"
+    assert cfg.video.num_sample_frames == 8
+    assert cfg.video.min_vote_fraction == 0.25
+    with pytest.raises(ValueError, match="Unknown output_format"):
+        VideoConfig(output_format="webm")
+    with pytest.raises(ValueError, match="num_sample_frames"):
+        VideoConfig(num_sample_frames=0)
+    with pytest.raises(ValueError, match="min_vote_fraction"):
+        VideoConfig(min_vote_fraction=0)
 
 
 def test_unknown_method_raises():
@@ -215,40 +223,29 @@ def test_theta_deg_to_radians():
     assert MeshConfig().hough.theta_rad == pytest.approx(np.deg2rad(1.0))
 
 
-def test_with_num_colors_shorthand():
-    """The -c shorthand maps onto method + palette.num_colors."""
-    cfg = with_num_colors(PixelateConfig(), 8)
-    assert cfg.colors.method == "palette"
-    assert cfg.colors.palette.num_colors == 8
-
-    back = with_num_colors(cfg, 0)
-    assert back.colors.method == "dominant"
-    # The palette sub-config is untouched, only the method flips.
-    assert back.colors.palette.num_colors == 8
-
-
 def test_pixelate_default_config_identity(assets):
-    """pixelate(img) must be pixel-identical to pixelate(img, config=...)."""
+    """pixelate(img) must be pixel-identical to pixelate(img, config=PixelateConfig())."""
     img = Image.open(assets / "blob" / "blob.png")
-    default_result = pixelate(img, num_colors=16)
-    config_result = pixelate(img, config=with_num_colors(PixelateConfig(), 16))
-    assert np.array_equal(np.array(default_result), np.array(config_result))
+    default_result = pixelate(img)
+    config_result = pixelate(img, config=PixelateConfig())
+    assert np.array_equal(np.array(default_result.image), np.array(config_result.image))
+    assert default_result.pixel_width == config_result.pixel_width
+    assert default_result.mesh == config_result.mesh
 
 
-def test_explicit_arg_overrides_config(assets):
-    """An explicit kwarg wins over the config value."""
+def test_pixelate_from_dict_matches_dataclass_config(assets):
+    """A from_dict-built config behaves identically to the dataclass form."""
     img = Image.open(assets / "blob" / "blob.png")
-    cfg = with_num_colors(PixelateConfig(), 4)
-    # Explicit num_colors=16 should override the config's 4.
-    via_arg = pixelate(img, num_colors=16, config=cfg)
-    via_plain = pixelate(img, num_colors=16)
-    assert np.array_equal(np.array(via_arg), np.array(via_plain))
-
-
-def test_explicit_zero_skips_over_config(assets):
-    """num_colors=0 overrides a quantizing config, taking the dominant path."""
-    img = Image.open(assets / "blob" / "blob.png")
-    cfg = with_num_colors(PixelateConfig(), 16)
-    via_zero = pixelate(img, num_colors=0, config=cfg)
-    via_skip = pixelate(img, num_colors=0)
-    assert np.array_equal(np.array(via_zero), np.array(via_skip))
+    via_dict = pixelate(
+        img,
+        config=PixelateConfig.from_dict(
+            {"colors": {"method": "palette", "palette": {"num_colors": 16}}}
+        ),
+    )
+    via_dataclass = pixelate(
+        img,
+        config=PixelateConfig(
+            colors=ColorConfig(method="palette", palette=PaletteConfig(num_colors=16))
+        ),
+    )
+    assert np.array_equal(np.array(via_dict.image), np.array(via_dataclass.image))

@@ -1,4 +1,4 @@
-"""Smoke tests for the ``ppa`` and ``ppa-video`` command line entry points.
+"""Smoke tests for the ``ppa`` command line entry point.
 
 Runs ``main()`` end to end on a small asset and checks output path handling
 and argument errors. Visual quality is validated separately by eye -- see
@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from proper_pixel_art import cli, cli_video
+from proper_pixel_art import cli
 from tests.test_video import LOGICAL_SIZE, _make_noisy_arrays, _save_gif
 
 
@@ -94,11 +94,6 @@ def test_main_dispatches_video_input(
         assert result.size == (LOGICAL_SIZE, LOGICAL_SIZE)
 
 
-def run_video_cli(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
-    monkeypatch.setattr(sys, "argv", ["ppa-video", *argv])
-    cli_video.main()
-
-
 @pytest.fixture(name="gif_path")
 def fixture_gif_path(tmp_path: Path) -> Path:
     """A small programmatically generated pixel-art GIF (no committed assets)."""
@@ -107,59 +102,78 @@ def fixture_gif_path(tmp_path: Path) -> Path:
     return input_path
 
 
-def test_parse_args_positional_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["ppa", "in.gif"])
-    args = cli.parse_args()
+def test_parse_args_positional_input() -> None:
+    args = cli.parse_args(["in.gif"])
     assert args.input_path == Path("in.gif")
     # Unset flags stay None ("not provided") so they fall back to --config
     assert args.config is None
     assert args.intermediate_dir is None
     assert args.transparent_background is None
+    assert args.color_method is None
+    assert args.colors is None
     assert args.output_format is None
-    assert args.sample_frames == 8
+    assert args.sample_frames is None
 
 
-def test_parse_args_input_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["ppa", "-i", "in.gif"])
-    args = cli.parse_args()
-    assert args.input_path == Path("in.gif")
-
-
-def test_parse_args_config_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["ppa", "in.gif", "--config", "cfg.yaml"])
-    args = cli.parse_args()
+def test_parse_args_config_flag() -> None:
+    args = cli.parse_args(["in.gif", "--config", "cfg.yaml"])
     assert args.config == Path("cfg.yaml")
 
 
-def test_parse_args_video_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_parse_args_video_flags() -> None:
     """-f/--format and -n/--sample-frames parse on the main ppa command."""
-    monkeypatch.setattr(sys, "argv", ["ppa", "in.gif", "-f", "mp4", "-n", "4"])
-    args = cli.parse_args()
+    args = cli.parse_args(["in.gif", "-f", "mp4", "-n", "4"])
     assert args.output_format == "mp4"
     assert args.sample_frames == 4
 
 
-def test_ppa_video_alias_deprecated(
-    monkeypatch: pytest.MonkeyPatch,
-    gif_path: Path,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture,
-) -> None:
-    """The deprecated ppa-video alias still works end to end and notes the
-    deprecation on stderr."""
-    out_path = tmp_path / "result.gif"
+def test_parse_args_no_transparent() -> None:
+    """BooleanOptionalAction: --no-transparent overrides a config's true."""
+    assert cli.parse_args(["in.png", "-t"]).transparent_background is True
+    assert (
+        cli.parse_args(["in.png", "--no-transparent"]).transparent_background is False
+    )
 
-    run_video_cli(monkeypatch, str(gif_path), "-o", str(out_path), "-c", "8")
 
-    assert "deprecated" in capsys.readouterr().err
-    assert out_path.is_file()
-    with Image.open(out_path) as result:
-        assert result.n_frames == 3
+def test_colors_flag_implies_palette_method() -> None:
+    args = cli.parse_args(["in.png", "-c", "8"])
+    cfg = cli.config_from_args(args)
+    assert cfg.colors.method == "palette"
+    assert cfg.colors.palette.num_colors == 8
+
+
+def test_colors_flag_conflicts_with_dominant_method() -> None:
+    args = cli.parse_args(["in.png", "-c", "8", "--color-method", "dominant"])
+    with pytest.raises(ValueError, match="palette method"):
+        cli.config_from_args(args)
+
+
+def test_video_flags_land_in_video_config() -> None:
+    args = cli.parse_args(["in.gif", "-f", "mp4", "-n", "4"])
+    cfg = cli.config_from_args(args)
+    assert cfg.video.output_format == "mp4"
+    assert cfg.video.num_sample_frames == 4
+
+
+def test_web_subcommand_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`ppa web` launches the Gradio UI with the parsed host/port."""
+    launched = {}
+
+    class FakeDemo:
+        def launch(self, server_name=None, server_port=None):
+            launched["host"] = server_name
+            launched["port"] = server_port
+
+    import proper_pixel_art.web as web
+
+    monkeypatch.setattr(web, "create_demo", lambda: FakeDemo())
+    cli.main(["web", "--host", "0.0.0.0", "--port", "7861"])
+    assert launched == {"host": "0.0.0.0", "port": 7861}
 
 
 def test_video_main_requires_input_path(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit):
-        run_video_cli(monkeypatch)
+        run_cli(monkeypatch, "-f", "gif")
 
 
 def test_video_main_with_config_yaml(
@@ -174,7 +188,7 @@ def test_video_main_with_config_yaml(
     out_path = tmp_path / "result.gif"
     intermediate_dir = tmp_path / "intermediate"
 
-    run_video_cli(
+    run_cli(
         monkeypatch,
         str(gif_path),
         "-o",
