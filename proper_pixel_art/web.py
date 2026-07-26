@@ -10,6 +10,7 @@ or a video player, matching the produced file.
 
 import base64
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
@@ -168,11 +169,15 @@ def process(file, output_format: str, sample_frames: float, *config_values):
             # Deferred import so image runs don't pay the cv2 import cost.
             from proper_pixel_art import video
 
+            video_overrides = {"num_sample_frames": int(sample_frames)}
+            if output_format != "Auto":
+                video_overrides["output_format"] = output_format
+            config = replace(
+                config, video=replace(config.video, **video_overrides)
+            )
             out_path = video.pixelate_video(
                 input_path=input_path,
                 output_path=Path(tempfile.mkdtemp()),
-                output_format=None if output_format == "Auto" else output_format,
-                num_sample_frames=int(sample_frames),
                 config=config,
             )
             if out_path.suffix.lower() == ".gif":

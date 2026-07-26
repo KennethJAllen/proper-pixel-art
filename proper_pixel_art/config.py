@@ -300,24 +300,6 @@ class PixelateConfig:
         return _build(cls, data, mesh=mesh, colors=colors, video=video)
 
 
-def with_num_colors(cfg: PixelateConfig, num_colors: int) -> PixelateConfig:
-    """Return a copy of ``cfg`` with the ``num_colors`` shorthand applied.
-
-    ``num_colors > 0`` selects the palette method with that palette size;
-    ``num_colors == 0`` selects the dominant method. This is the mapping behind
-    the CLI ``-c`` flag and the ``pixelate(num_colors=...)`` kwarg.
-    """
-    if num_colors:
-        colors = replace(
-            cfg.colors,
-            method="palette",
-            palette=replace(cfg.colors.palette, num_colors=num_colors),
-        )
-    else:
-        colors = replace(cfg.colors, method="dominant")
-    return replace(cfg, colors=colors)
-
-
 def _build(dc_type, data: dict, **nested):
     """Return an instance of ``dc_type`` with ``data``/``nested`` overriding defaults.
 

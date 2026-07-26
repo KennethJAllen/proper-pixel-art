@@ -12,7 +12,6 @@ Pixelates animations in two passes for temporal consistency and speed:
 
 import logging
 from collections import Counter
-from dataclasses import replace
 from fractions import Fraction
 from math import ceil
 from pathlib import Path
@@ -27,7 +26,6 @@ from proper_pixel_art.config import (
     MeshConfig,
     PixelateConfig,
     VideoConfig,
-    with_num_colors,
 )
 from proper_pixel_art.image import (
     build_cell_map,
@@ -458,17 +456,10 @@ def _write_gif(
 
 
 def pixelate_video(
-    input_path: Path,
-    output_path: Path,
-    num_colors: int | None = None,
-    scale_result: int | None = None,
-    transparent_background: bool | None = None,
-    pixel_width: int | None = None,
-    initial_upscale_factor: int | None = None,
-    output_format: str | None = None,
-    num_sample_frames: int = 8,
-    intermediate_dir: Path | None = None,
+    input_path: str | Path,
+    output_path: str | Path | None = None,
     config: PixelateConfig | None = None,
+    intermediate_dir: Path | None = None,
 ) -> Path:
     """
     Pixelate a video or GIF file.
@@ -476,63 +467,38 @@ def pixelate_video(
     Samples a few frames to compute a master mesh and a global color palette,
     then applies both to every frame for a temporally consistent result.
 
-    Every pixelation parameter defaults to ``None``, meaning "not provided" —
-    the value is taken from ``config`` (or the built-in defaults). Pass a
-    concrete value to override the config.
-
     Args:
         input_path: Path to input video/GIF
-        output_path: Path for output file (directory or file)
-        num_colors: Shorthand for colors.method: >= 1 selects the palette
-            method with that palette size, 0 selects the dominant method
-            (original colors preserved)
-        scale_result: Upscale result by this factor
-        transparent_background: Make background transparent
-        pixel_width: Override automatic pixel width detection (0 = auto)
-        initial_upscale_factor: Upscale factor for mesh detection
-        output_format: Output format ("mp4" or "gif"). Defaults to "gif"
-            regardless of the input format; a ".mp4" output path also
-            selects "mp4".
-        num_sample_frames: Frames to sample for mesh/palette detection
+        output_path: Path for the output file (directory or file). Defaults to
+            the current directory; a directory gets the default
+            ``{stem}_{W}x{H}.{ext}`` filename.
+        config: A PixelateConfig bundling every tunable parameter, including
+            the ``video`` section (output format, frames sampled for
+            mesh/palette detection). Load one from YAML with
+            PixelateConfig.from_yaml; defaults are used when omitted.
         intermediate_dir: Directory to save images visualizing intermediate steps
-        config: A PixelateConfig bundling every tunable parameter. Load one from
-            YAML with PixelateConfig.from_yaml. Any of the explicit arguments
-            above, when provided (not None), override the corresponding value
-            in config.
 
     Returns:
         Path to the output file
+
+    The output format is taken from ``output_path``'s suffix when it has one
+    (".mp4"/".gif"); otherwise from ``config.video.output_format`` (default
+    "gif", regardless of the input format).
     """
     input_path = Path(input_path)
-    output_path = Path(output_path)
-
-    # Resolution order: explicit argument > config > built-in defaults.
+    output_path = Path(output_path) if output_path is not None else Path(".")
     cfg = config if config is not None else PixelateConfig()
-    overrides = {
-        name: value
-        for name, value in (
-            ("initial_upscale_factor", initial_upscale_factor),
-            ("scale_result", scale_result),
-            ("transparent_background", transparent_background),
-            ("pixel_width", pixel_width),
-        )
-        if value is not None
-    }
-    if overrides:
-        cfg = replace(cfg, **overrides)
-    if num_colors is not None:
-        cfg = with_num_colors(cfg, num_colors)
 
-    # Resolve output format: explicit argument, then output extension,
-    # otherwise GIF regardless of the input format.
-    if output_format is None:
-        output_format = output_path.suffix.lstrip(".") if output_path.suffix else "gif"
-    output_format = output_format.lower()
-    if output_format not in ("mp4", "gif"):
-        raise ValueError(
-            f"Unsupported output format {output_format!r}: expected 'mp4' or "
-            "'gif'. Use a .mp4/.gif output path or pass output_format."
-        )
+    # Resolve output format: output suffix first, then the config.
+    if output_path.suffix:
+        output_format = output_path.suffix.lstrip(".").lower()
+        if output_format not in ("mp4", "gif"):
+            raise ValueError(
+                f"Unsupported output format {output_format!r}: expected 'mp4' or "
+                "'gif'. Use a .mp4/.gif output path or set video.output_format."
+            )
+    else:
+        output_format = cfg.video.output_format
 
     # A directory output gets its default '{stem}_{W}x{H}.{ext}' filename once
     # the first processed frame reveals the output size.
@@ -547,7 +513,9 @@ def pixelate_video(
     info = video_io.probe(input_path)
 
     # Pass 1: sample frames, then make all global decisions from them
-    sample_frames = video_io.read_sample_frames(input_path, num_sample_frames, info)
+    sample_frames = video_io.read_sample_frames(
+        input_path, cfg.video.num_sample_frames, info
+    )
     mesh_lines, upscale_factor = compute_video_mesh(
         sample_frames,
         upscale_factor=cfg.initial_upscale_factor,
