@@ -16,7 +16,7 @@ from PIL import Image
 
 from proper_pixel_art.cli import VIDEO_SUFFIXES
 from proper_pixel_art.config import PixelateConfig
-from proper_pixel_art.pixelate import pixelate
+from proper_pixel_art.image import pixelate
 
 IMG_HEIGHT = 512
 
@@ -182,7 +182,7 @@ def process(file, output_format: str, sample_frames: float, *config_values):
             return outputs(video=str(out_path), status=_status("✅ Done"))
 
         result = pixelate(Image.open(input_path), config=config)
-        return outputs(img=result, status=_status("✅ Done"))
+        return outputs(img=result.image, status=_status("✅ Done"))
     except Exception as exc:  # noqa: BLE001 - surface any failure to the user
         return outputs(status=_status(f"❌ Failed: {exc}"))
 

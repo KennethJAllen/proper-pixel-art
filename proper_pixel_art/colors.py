@@ -7,15 +7,10 @@ import numpy as np
 from PIL import Image, ImageColor
 from scipy.cluster import hierarchy
 
-from proper_pixel_art.config import ColorConfig
+from proper_pixel_art.config import ColorConfig, DominantConfig
 
 RGB = tuple[int, int, int]
 RGBA = tuple[int, int, int, int]
-
-# Shared defaults so the helpers below don't re-declare literals; ColorConfig
-# holds the canonical values.
-_DEFAULTS = ColorConfig()
-ALPHA_THRESHOLD = _DEFAULTS.alpha_threshold  # alpha >= this is opaque
 
 
 def _rgb_dist(a: RGB, b: RGB) -> int:
@@ -26,18 +21,18 @@ def _rgb_dist(a: RGB, b: RGB) -> int:
 
 def top_opaque_colors(
     img: Image.Image,
-    alpha_threshold: int,
-    limit: int = _DEFAULTS.top_colors_limit,
-    thumbnail_size: tuple[int, int] = _DEFAULTS.thumbnail_size,
+    color_config: ColorConfig | None = None,
 ) -> list[RGB]:
-    """Return the most common opaque colors (RGB) up to limit."""
+    """Return the most common opaque colors (RGB) up to
+    ``color_config.top_colors_limit``."""
+    color_config = color_config or ColorConfig()
     rgba = img.convert("RGBA").copy()
-    rgba.thumbnail(thumbnail_size)  # speed and de-noise tiny details
+    rgba.thumbnail(color_config.thumbnail_size)  # speed and de-noise tiny details
     counts = Counter()
     for r, g, b, a in rgba.get_flattened_data():
-        if a >= alpha_threshold:
+        if a >= color_config.alpha_threshold:
             counts[(r, g, b)] += 1
-    return [c for c, _ in counts.most_common(limit)]
+    return [c for c, _ in counts.most_common(color_config.top_colors_limit)]
 
 
 DEFAULT_BACKGROUND_CANDIDATES: list[RGB] = [
@@ -76,31 +71,31 @@ def pick_background(colors: list[RGB], candidates: list[RGB] | None = None) -> R
 
 def clamp_alpha(
     image: Image.Image,
-    alpha_threshold: int = ALPHA_THRESHOLD,
+    color_config: ColorConfig | None = None,
     mode: str = "RGB",
     background_hex: str | None = None,
-    limit: int = _DEFAULTS.top_colors_limit,
-    thumbnail_size: tuple[int, int] = _DEFAULTS.thumbnail_size,
-    background_candidates: list[RGB] | None = None,
 ) -> Image.Image:
     """
-    Replace pixels with alpha < threshold by a background color.
-    If background_hex is None, choose a color far from the most common image colors.
+    Replace pixels with alpha < ``color_config.alpha_threshold`` by a background
+    color. If background_hex is None, choose a color far from the most common
+    image colors.
     mode: 'RGB' or 'L'
     """
     if mode not in ("RGB", "L"):
         raise ValueError("mode must be 'RGB' or 'L'")
+    color_config = color_config or ColorConfig()
 
     if background_hex is None:
-        common = top_opaque_colors(
-            image, alpha_threshold, limit=limit, thumbnail_size=thumbnail_size
+        common = top_opaque_colors(image, color_config)
+        bg_rgb = pick_background(
+            common, candidates=color_config.background_candidates
         )
-        bg_rgb = pick_background(common, candidates=background_candidates)
     else:
         bg_rgb = ImageColor.getrgb(background_hex)
 
     base = image.convert(mode)
     alpha = image.getchannel("A")
+    alpha_threshold = color_config.alpha_threshold
     mask = alpha.point(lambda p: 255 if p >= alpha_threshold else 0)
 
     background = Image.new("RGB", image.size, bg_rgb).convert(mode)
@@ -130,9 +125,7 @@ def extract_and_scale_alpha(image: Image.Image, scale_factor: int = 1) -> np.nda
         return alpha_channel
 
 
-def dominant_rgb_by_binning(
-    rgb_pixels: np.ndarray, bin_size: int = _DEFAULTS.dominant.bin_size
-) -> RGB:
+def dominant_rgb_by_binning(rgb_pixels: np.ndarray, bin_size: int) -> RGB:
     """
     Find the dominant color of ``rgb_pixels`` using offset binning.
 
@@ -218,14 +211,17 @@ class ColorMerger:
 
     def __init__(
         self,
-        distance: int = _DEFAULTS.dominant.merge_distance,
-        linkage: str = _DEFAULTS.dominant.merge_linkage,
-        max_colors: int = _DEFAULTS.dominant.max_linkage_colors,
+        dominant: DominantConfig | None = None,
+        alpha_threshold: int | None = None,
     ):
-        self.distance = distance
-        self.distance_sq = distance * distance
-        self.linkage = linkage
-        self.max_colors = max_colors
+        dominant = dominant or DominantConfig()
+        self.distance = dominant.merge_distance
+        self.distance_sq = self.distance * self.distance
+        self.linkage = dominant.merge_linkage
+        self.max_colors = dominant.max_linkage_colors
+        self.alpha_threshold = (
+            ColorConfig().alpha_threshold if alpha_threshold is None else alpha_threshold
+        )
         self.representatives: list[RGB] = []
         self._mapping: dict[RGB, RGB] = {}
 
@@ -251,7 +247,7 @@ class ColorMerger:
             pixels = np.asarray(image.convert("RGBA")).reshape(-1, 4)
             # int() the components so the Counter's tuple keys are plain
             # Python ints, matching the .astype(int) keys apply() looks up
-            opaque = pixels[pixels[:, 3] >= ALPHA_THRESHOLD][:, :3].astype(int)
+            opaque = pixels[pixels[:, 3] >= self.alpha_threshold][:, :3].astype(int)
             counts.update(map(tuple, opaque))
         self._fit_linkage(counts)
         return self
@@ -296,7 +292,7 @@ class ColorMerger:
         rgba = np.asarray(image.convert("RGBA")).copy()
         height, width = rgba.shape[:2]
         pixels = rgba.reshape(-1, 4)
-        opaque = pixels[:, 3] >= ALPHA_THRESHOLD
+        opaque = pixels[:, 3] >= self.alpha_threshold
         unique, inverse = np.unique(
             pixels[opaque, :3].astype(int), axis=0, return_inverse=True
         )
@@ -323,12 +319,11 @@ class ColorMerger:
 
 def merge_output_colors(
     image: Image.Image,
-    distance: int = _DEFAULTS.dominant.merge_distance,
-    linkage: str = _DEFAULTS.dominant.merge_linkage,
-    max_colors: int = _DEFAULTS.dominant.max_linkage_colors,
+    dominant: DominantConfig | None = None,
+    alpha_threshold: int | None = None,
 ) -> Image.Image:
     """Fit-and-apply :class:`ColorMerger` convenience for a single image."""
-    merger = ColorMerger(distance, linkage=linkage, max_colors=max_colors)
+    merger = ColorMerger(dominant, alpha_threshold=alpha_threshold)
     return merger.fit([image]).apply(image)
 
 
@@ -348,14 +343,7 @@ def palette_img(
     increasing num_colors.
     """
     color_config = color_config or ColorConfig()
-    image_rgb = clamp_alpha(
-        image,
-        alpha_threshold=color_config.alpha_threshold,
-        mode="RGB",
-        limit=color_config.top_colors_limit,
-        thumbnail_size=color_config.thumbnail_size,
-        background_candidates=color_config.background_candidates,
-    )
+    image_rgb = clamp_alpha(image, color_config, mode="RGB")
     palette = color_config.palette
     quantized_img = image_rgb.quantize(
         colors=palette.num_colors,

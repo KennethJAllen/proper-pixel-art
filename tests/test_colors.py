@@ -5,6 +5,7 @@ import reference_colors
 from PIL import Image
 
 from proper_pixel_art import colors
+from proper_pixel_art.config import DominantConfig
 
 
 def _make_rgba(rgb_cell: np.ndarray, alpha: int = 255) -> np.ndarray:
@@ -324,24 +325,24 @@ class TestColorMerger:
             + [(104, 102, 101, 255)] * 2
             + [(200, 50, 50, 255)] * 3
         )
-        merged = np.asarray(colors.merge_output_colors(img, distance=12))
+        merged = np.asarray(colors.merge_output_colors(img, DominantConfig(merge_distance=12)))
         pixels = {tuple(p) for p in merged.reshape(-1, 4)}
         assert pixels == {(100, 100, 100, 255), (200, 50, 50, 255)}
 
     def test_distinct_colors_preserved(self):
         img = self._image([(0, 0, 0, 255), (100, 100, 100, 255), (255, 255, 255, 255)])
-        merged = colors.merge_output_colors(img, distance=12)
+        merged = colors.merge_output_colors(img, DominantConfig(merge_distance=12))
         assert merged.tobytes() == img.convert("RGBA").tobytes()
 
     def test_transparent_pixels_untouched(self):
         img = self._image([(100, 100, 100, 255), (103, 100, 100, 0)])
-        merged = np.asarray(colors.merge_output_colors(img, distance=12))
+        merged = np.asarray(colors.merge_output_colors(img, DominantConfig(merge_distance=12)))
         assert merged[0, 1, 3] == 0
         assert tuple(merged[0, 1, :3]) == (103, 100, 100)
 
     def test_unseen_color_maps_to_nearest_representative(self):
         fit_img = self._image([(100, 100, 100, 255)] * 3)
-        merger = colors.ColorMerger(distance=12).fit([fit_img])
+        merger = colors.ColorMerger(DominantConfig(merge_distance=12)).fit([fit_img])
         apply_img = self._image([(105, 100, 100, 255), (200, 200, 200, 255)])
         merged = np.asarray(merger.apply(apply_img))
         assert tuple(merged[0, 0]) == (100, 100, 100, 255)  # near -> mapped
@@ -349,7 +350,7 @@ class TestColorMerger:
 
     def test_mapping_is_stable_across_applies(self):
         fit_img = self._image([(100, 100, 100, 255)] * 3 + [(107, 100, 100, 255)])
-        merger = colors.ColorMerger(distance=12).fit([fit_img])
+        merger = colors.ColorMerger(DominantConfig(merge_distance=12)).fit([fit_img])
         frame = self._image([(107, 100, 100, 255)])
         first = merger.apply(frame).tobytes()
         second = merger.apply(frame).tobytes()
@@ -366,14 +367,14 @@ class TestColorMerger:
 
     def test_complete_linkage_bounds_cluster_diameter(self):
         img = self._image(self._CHAIN)
-        merged = np.asarray(colors.merge_output_colors(img, distance=12))
+        merged = np.asarray(colors.merge_output_colors(img, DominantConfig(merge_distance=12)))
         pixels = {tuple(p) for p in merged.reshape(-1, 4)}
         assert pixels == {(100, 100, 100, 255), (111, 100, 100, 255)}
 
     def test_single_linkage_chain_merges(self):
         img = self._image(self._CHAIN)
         merged = np.asarray(
-            colors.merge_output_colors(img, distance=12, linkage="single")
+            colors.merge_output_colors(img, DominantConfig(merge_distance=12, merge_linkage="single"))
         )
         pixels = {tuple(p) for p in merged.reshape(-1, 4)}
         assert pixels == {(100, 100, 100, 255)}
@@ -389,7 +390,7 @@ class TestColorMerger:
         flat = [(10, 10, 10, 255)] * 300 + [(14, 10, 10, 255)] * 200
         img = self._image(flat + noise)
 
-        merger = colors.ColorMerger(distance=12).fit([img])
+        merger = colors.ColorMerger(DominantConfig(merge_distance=12)).fit([img])
 
         assert len(merger.representatives) <= 4096
         merged = np.asarray(merger.apply(img))
@@ -404,7 +405,7 @@ class TestColorMerger:
         rare = [(14, 10, 10, 255), (90, 90, 90, 255)]  # near / far from (10,10,10)
         img = self._image(frequent + rare)
 
-        merger = colors.ColorMerger(distance=12, max_colors=2).fit([img])
+        merger = colors.ColorMerger(DominantConfig(merge_distance=12, max_linkage_colors=2)).fit([img])
 
         assert len(merger.representatives) <= 2
         merged = np.asarray(merger.apply(img)).reshape(-1, 4)
@@ -413,10 +414,10 @@ class TestColorMerger:
 
     def test_single_unique_color(self):
         img = self._image([(100, 100, 100, 255)] * 4)
-        merged = colors.merge_output_colors(img, distance=12)
+        merged = colors.merge_output_colors(img, DominantConfig(merge_distance=12))
         assert merged.tobytes() == img.convert("RGBA").tobytes()
 
     def test_fully_transparent_image(self):
         img = self._image([(100, 100, 100, 0), (50, 50, 50, 0)])
-        merged = colors.merge_output_colors(img, distance=12)
+        merged = colors.merge_output_colors(img, DominantConfig(merge_distance=12))
         assert merged.tobytes() == img.convert("RGBA").tobytes()

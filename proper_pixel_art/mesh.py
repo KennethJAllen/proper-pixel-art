@@ -13,14 +13,8 @@ from proper_pixel_art.utils import Lines, Mesh
 
 logger = logging.getLogger(__name__)
 
-# Shared defaults so the helpers below don't re-declare literals; MeshConfig
-# holds the canonical values.
-_DEFAULTS = MeshConfig()
 
-
-def close_edges(
-    edges: np.ndarray, kernel_size: int = _DEFAULTS.closure_kernel_size
-) -> np.ndarray:
+def close_edges(edges: np.ndarray, kernel_size: int) -> np.ndarray:
     """
     Apply a morphological closing to fill small gaps in edge map.
     """
@@ -29,7 +23,7 @@ def close_edges(
     return closed
 
 
-def cluster_lines(lines: Lines, threshold: int = _DEFAULTS.cluster_threshold) -> Lines:
+def cluster_lines(lines: Lines, threshold: int) -> Lines:
     """Remove lines that are too close to each other by clustering near values"""
     if not lines:
         return []
@@ -87,7 +81,7 @@ def detect_mesh_lines(edges: np.ndarray, mesh_config: MeshConfig | None = None) 
 
 def get_pixel_width(
     line_collection: list[Lines],
-    trim_outlier_fraction: float = _DEFAULTS.trim_outlier_fraction,
+    trim_outlier_fraction: float,
 ) -> int:
     """
     Takes list of line coordinates, and outlier fraction.
@@ -673,7 +667,7 @@ def compute_mesh_from_edges(
     mesh_config: MeshConfig | None = None,
     profiles: tuple[np.ndarray, np.ndarray] | None = None,
     score_image: np.ndarray | None = None,
-) -> Mesh:
+) -> tuple[Mesh, int]:
     """
     Compute mesh from a closed edge map using Hough transform and line homogenization.
 
@@ -691,7 +685,9 @@ def compute_mesh_from_edges(
             are validated by reconstruction error instead of trusted blindly.
 
     Returns:
-        The pixel mesh (mesh_x, mesh_y)
+        Tuple of (pixel mesh (mesh_x, mesh_y), pixel width used) — the width is
+        the configured one when given, otherwise the detected one, in edge-map
+        coordinates.
     """
     mesh_config = mesh_config or MeshConfig()
     mesh_initial = detect_mesh_lines(closed_edges, mesh_config)
@@ -776,7 +772,7 @@ def compute_mesh_from_edges(
             )
             img_with_completed_lines.save(intermediate_dir / "mesh.png")
 
-    return mesh_final
+    return mesh_final, pixel_width
 
 
 def compute_mesh(
@@ -784,7 +780,7 @@ def compute_mesh(
     intermediate_dir: Path | None = None,
     pixel_width: int | None = None,
     mesh_config: MeshConfig | None = None,
-) -> Mesh:
+) -> tuple[Mesh, int]:
     """
     Finds grid lines of a high resolution noisy image.
     - Uses Canny edge detector to find vertical and horizontal edges
@@ -798,10 +794,10 @@ def compute_mesh(
         mesh_config: Tunable mesh-detection parameters (Canny, Hough, clustering, ...)
 
     output:
-        Returns The pixel mesh: mesh_x, mesh_y
-            tuple of two lists of integer coordinates ():
+        Returns ((mesh_x, mesh_y), pixel_width):
         - mesh_x: Coordinates of pixel mesh on the x-axis
         - mesh_y: Coordinates of pixel mesh on the y-axis
+        - pixel_width: the pixel width used (configured or detected)
 
     Note: this could even be generalized to detect grid lines that
     have been distorted via linear transformation.
@@ -832,29 +828,33 @@ def compute_mesh_with_scaling(
     intermediate_dir: Path | None = None,
     pixel_width: int | None = None,
     mesh_config: MeshConfig | None = None,
-) -> tuple[Mesh, int]:
+) -> tuple[Mesh, int, int]:
     """
     Try to compute the mesh on on the image.
     First upscale the image with a given upscale factor
     If that yields only the trivial mesh lines, try to compute the mesh on
     the original image instead.
-    Returns the mesh line coordinates and the scale factor used
+    Returns the mesh line coordinates, the scale factor used, and the pixel
+    width used (in the returned mesh's upscaled coordinates).
     """
     upscaled_img = utils.scale_img(img, upscale_factor)
-    mesh_lines = compute_mesh(
+    mesh_lines, used_width = compute_mesh(
         upscaled_img,
         intermediate_dir=intermediate_dir,
         pixel_width=pixel_width,
         mesh_config=mesh_config,
     )
     if not is_trivial_mesh(mesh_lines):
-        return mesh_lines, upscale_factor
+        return mesh_lines, upscale_factor, used_width
 
     # If no mesh is found, then use the original image instead.
-    fallback_mesh_lines = compute_mesh(
-        img, intermediate_dir=intermediate_dir, pixel_width=pixel_width, mesh_config=mesh_config
+    fallback_mesh_lines, fallback_width = compute_mesh(
+        img,
+        intermediate_dir=intermediate_dir,
+        pixel_width=pixel_width,
+        mesh_config=mesh_config,
     )
-    return fallback_mesh_lines, 1
+    return fallback_mesh_lines, 1, fallback_width
 
 
 def is_trivial_mesh(img_mesh: Mesh) -> bool:

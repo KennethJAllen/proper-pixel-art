@@ -222,7 +222,7 @@ class VideoConfig:
 
 @dataclass
 class PixelateConfig:
-    """Top-level configuration for :func:`proper_pixel_art.pixelate.pixelate`.
+    """Top-level configuration for :func:`proper_pixel_art.image.pixelate`.
 
     ``scale_result=None`` means no output scaling and ``pixel_width=None``
     auto-detects the pixel width. The quantization method is selected by

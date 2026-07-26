@@ -29,7 +29,7 @@ from proper_pixel_art.config import (
     VideoConfig,
     with_num_colors,
 )
-from proper_pixel_art.pixelate import (
+from proper_pixel_art.image import (
     build_cell_map,
     downsample_binned,
     downsample_quantized,
@@ -145,7 +145,7 @@ def compute_video_mesh(
         if intermediate_dir is not None
         else None
     )
-    mesh_lines = mesh.compute_mesh_from_edges(
+    mesh_lines, _ = mesh.compute_mesh_from_edges(
         aggregated,
         pixel_width=pixel_width,
         intermediate_dir=intermediate_dir,
@@ -169,7 +169,7 @@ def compute_video_mesh(
         mesh_config=mesh_config,
         min_vote_fraction=min_vote_fraction,
     )
-    fallback_mesh = mesh.compute_mesh_from_edges(
+    fallback_mesh, _ = mesh.compute_mesh_from_edges(
         aggregated_fallback,
         pixel_width=pixel_width,
         intermediate_dir=intermediate_dir,
@@ -204,12 +204,7 @@ def build_global_palette(
     )
     mosaic = Image.fromarray(mosaic_array, mode="RGBA")
 
-    common = colors.top_opaque_colors(
-        mosaic,
-        color_config.alpha_threshold,
-        limit=color_config.top_colors_limit,
-        thumbnail_size=color_config.thumbnail_size,
-    )
+    common = colors.top_opaque_colors(mosaic, color_config)
     background = colors.pick_background(
         common, candidates=color_config.background_candidates
     )
@@ -217,7 +212,7 @@ def build_global_palette(
 
     clamped = colors.clamp_alpha(
         mosaic,
-        alpha_threshold=color_config.alpha_threshold,
+        color_config,
         mode="RGB",
         background_hex=background_hex,
     )
@@ -287,9 +282,7 @@ class FramePipeline:
         if self.skip_quantization and dominant.merge_distance > 0:
             small_samples = [self._downsample_frame(f) for f in sample_frames]
             self.color_merger = colors.ColorMerger(
-                dominant.merge_distance,
-                linkage=dominant.merge_linkage,
-                max_colors=dominant.max_linkage_colors,
+                dominant, alpha_threshold=self.color_config.alpha_threshold
             ).fit(small_samples)
 
         self.background_color: colors.RGB | None = None
@@ -311,7 +304,7 @@ class FramePipeline:
         else:
             clamped = colors.clamp_alpha(
                 frame_rgba,
-                alpha_threshold=self.color_config.alpha_threshold,
+                self.color_config,
                 mode="RGB",
                 background_hex=self.background_hex,
             )

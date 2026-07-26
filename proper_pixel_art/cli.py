@@ -1,13 +1,14 @@
 """Command line interface"""
 
 import argparse
+from dataclasses import replace
 from importlib.metadata import version
 from pathlib import Path
 
 from PIL import Image
 
 from proper_pixel_art import pixelate, utils
-from proper_pixel_art.config import PixelateConfig
+from proper_pixel_art.config import PixelateConfig, with_num_colors
 
 # Inputs with these suffixes are dispatched to the video pipeline; everything
 # else is treated as a still image. GIFs always take the video path, which
@@ -140,13 +141,27 @@ def add_config_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
-def collect_pixelation_overrides(args: argparse.Namespace) -> dict:
-    """Collect the explicit pixelation flag values from parsed args.
+def config_from_args(
+    args: argparse.Namespace, base: PixelateConfig | None = None
+) -> PixelateConfig:
+    """Apply the explicitly-given pixelation flags over ``base``.
 
-    Values are ``None`` when the flag wasn't provided, so they fall back to
-    the config / built-in defaults downstream.
+    Flags default to ``None`` when not provided, so unset ones keep the value
+    from ``base`` (a ``--config`` file, or the built-in defaults). This is the
+    one place where two configuration sources merge.
     """
-    return {field: getattr(args, field) for field in PIXELATION_FIELDS}
+    cfg = base if base is not None else PixelateConfig()
+    explicit = {
+        field: value
+        for field in PIXELATION_FIELDS
+        if (value := getattr(args, field, None)) is not None
+    }
+    num_colors = explicit.pop("num_colors", None)
+    if explicit:
+        cfg = replace(cfg, **explicit)
+    if num_colors is not None:
+        cfg = with_num_colors(cfg, num_colors)
+    return cfg
 
 
 def resolve_input_path(
@@ -227,9 +242,6 @@ def main() -> None:
 
     config = PixelateConfig.from_yaml(args.config) if args.config else None
 
-    # None values fall back to config / built-in defaults inside pixelate.
-    overrides = collect_pixelation_overrides(args)
-
     # Debug images go in a per-input subdirectory named after the input stem
     # (e.g. --intermediate-dir foo + wisp.mp4 -> foo/wisp/), mirroring the
     # stem-based output-path convention and keeping multiple runs from
@@ -249,15 +261,14 @@ def main() -> None:
             output_format=args.output_format,
             num_sample_frames=args.sample_frames,
             intermediate_dir=intermediate_dir,
-            config=config,
-            **overrides,
+            config=config_from_args(args, config),
         )
         return
 
     img = Image.open(input_path)
     pixelated = pixelate(
-        img, config=config, intermediate_dir=intermediate_dir, **overrides
-    )
+        img, config=config_from_args(args, config), intermediate_dir=intermediate_dir
+    ).image
 
     width, height = pixelated.size
 

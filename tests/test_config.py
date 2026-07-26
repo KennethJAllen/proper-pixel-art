@@ -15,7 +15,6 @@ from proper_pixel_art.config import (
     PaletteConfig,
     PixelateConfig,
     VideoConfig,
-    with_num_colors,
 )
 
 EXAMPLE_CONFIG = Path(__file__).parent.parent / "config.example.yaml"
@@ -224,40 +223,31 @@ def test_theta_deg_to_radians():
     assert MeshConfig().hough.theta_rad == pytest.approx(np.deg2rad(1.0))
 
 
-def test_with_num_colors_shorthand():
-    """The -c shorthand maps onto method + palette.num_colors."""
-    cfg = with_num_colors(PixelateConfig(), 8)
-    assert cfg.colors.method == "palette"
-    assert cfg.colors.palette.num_colors == 8
-
-    back = with_num_colors(cfg, 0)
-    assert back.colors.method == "dominant"
-    # The palette sub-config is untouched, only the method flips.
-    assert back.colors.palette.num_colors == 8
-
-
 def test_pixelate_default_config_identity(assets):
-    """pixelate(img) must be pixel-identical to pixelate(img, config=...)."""
+    """pixelate(img) must be pixel-identical to pixelate(img, config=PixelateConfig())."""
     img = Image.open(assets / "blob" / "blob.png")
-    default_result = pixelate(img, num_colors=16)
-    config_result = pixelate(img, config=with_num_colors(PixelateConfig(), 16))
-    assert np.array_equal(np.array(default_result), np.array(config_result))
+    default_result = pixelate(img)
+    config_result = pixelate(img, config=PixelateConfig())
+    assert np.array_equal(
+        np.array(default_result.image), np.array(config_result.image)
+    )
+    assert default_result.pixel_width == config_result.pixel_width
+    assert default_result.mesh == config_result.mesh
 
 
-def test_explicit_arg_overrides_config(assets):
-    """An explicit kwarg wins over the config value."""
+def test_pixelate_from_dict_matches_dataclass_config(assets):
+    """A from_dict-built config behaves identically to the dataclass form."""
     img = Image.open(assets / "blob" / "blob.png")
-    cfg = with_num_colors(PixelateConfig(), 4)
-    # Explicit num_colors=16 should override the config's 4.
-    via_arg = pixelate(img, num_colors=16, config=cfg)
-    via_plain = pixelate(img, num_colors=16)
-    assert np.array_equal(np.array(via_arg), np.array(via_plain))
-
-
-def test_explicit_zero_skips_over_config(assets):
-    """num_colors=0 overrides a quantizing config, taking the dominant path."""
-    img = Image.open(assets / "blob" / "blob.png")
-    cfg = with_num_colors(PixelateConfig(), 16)
-    via_zero = pixelate(img, num_colors=0, config=cfg)
-    via_skip = pixelate(img, num_colors=0)
-    assert np.array_equal(np.array(via_zero), np.array(via_skip))
+    via_dict = pixelate(
+        img,
+        config=PixelateConfig.from_dict(
+            {"colors": {"method": "palette", "palette": {"num_colors": 16}}}
+        ),
+    )
+    via_dataclass = pixelate(
+        img,
+        config=PixelateConfig(
+            colors=ColorConfig(method="palette", palette=PaletteConfig(num_colors=16))
+        ),
+    )
+    assert np.array_equal(np.array(via_dict.image), np.array(via_dataclass.image))

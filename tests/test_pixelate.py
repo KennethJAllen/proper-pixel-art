@@ -14,8 +14,8 @@ import reference_colors
 from PIL import Image
 
 from proper_pixel_art import pixelate
-from proper_pixel_art.config import ColorConfig
-from proper_pixel_art.pixelate import build_cell_map, downsample
+from proper_pixel_art.config import ColorConfig, PixelateConfig
+from proper_pixel_art.image import build_cell_map, downsample
 from proper_pixel_art.utils import Mesh
 
 
@@ -30,13 +30,15 @@ def test_pixelate_pngs(
         img = Image.open(params["path"])
         result = pixelate(
             img,
-            num_colors=params["num_colors"],
-            scale_result=params["result_scale"],
-            transparent_background=params["transparent_background"],
+            config=PixelateConfig.from_dict(params["config"]),
             intermediate_dir=intermediate_dir,
         )
 
-        assert result.width > 0 and result.height > 0, f"Invalid dimensions for {name}"
+        assert result.image.width > 0 and result.image.height > 0, (
+            f"Invalid dimensions for {name}"
+        )
+        assert result.pixel_width >= 1
+        assert len(result.mesh[0]) > 2 and len(result.mesh[1]) > 2
 
 
 def _downsample_reference(

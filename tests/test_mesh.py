@@ -14,9 +14,10 @@ def test_mesh():
     """
     img_path = Path.cwd() / "assets" / "blob" / "blob.png"
     img = Image.open(img_path).convert("RGBA")
-    mesh_x, mesh_y = mesh.compute_mesh(img)
+    (mesh_x, mesh_y), pixel_width = mesh.compute_mesh(img)
     assert (len(mesh_x)) > 2
     assert (len(mesh_y)) > 2
+    assert pixel_width >= 1
 
 
 def _grid_image(boundaries: list[int], size: int, axis: int) -> np.ndarray:
@@ -296,13 +297,13 @@ def test_validate_width_corrects_hough_lockon_when_enabled():
     # autocorrelation estimators put the fundamental among the candidates.
     profiles = mesh.compute_gradient_profiles(grey)
 
-    mesh_off = mesh.compute_mesh_from_edges(
+    mesh_off, _ = mesh.compute_mesh_from_edges(
         edges,
         mesh_config=MeshConfig(validate_width=False),
         profiles=profiles,
         score_image=grey,
     )
-    mesh_on = mesh.compute_mesh_from_edges(
+    mesh_on, _ = mesh.compute_mesh_from_edges(
         edges,
         mesh_config=MeshConfig(validate_width=True),
         profiles=profiles,
