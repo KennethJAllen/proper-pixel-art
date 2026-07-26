@@ -185,9 +185,7 @@ def process(file, output_format: str, sample_frames: float, *config_values):
             video_overrides = {"num_sample_frames": int(sample_frames)}
             if output_format != "Auto":
                 video_overrides["output_format"] = output_format
-            config = replace(
-                config, video=replace(config.video, **video_overrides)
-            )
+            config = replace(config, video=replace(config.video, **video_overrides))
             out_path = video.pixelate_video(
                 input_path=input_path,
                 output_path=Path(tempfile.mkdtemp()),
@@ -265,7 +263,11 @@ def create_demo():
                 label="Initial Upscale",
             )
             pixel_width = gr.Slider(
-                0, 50, value=_DEFAULTS.pixel_width or 0, step=1, label="Pixel Width (0=auto)"
+                0,
+                50,
+                value=_DEFAULTS.pixel_width or 0,
+                step=1,
+                label="Pixel Width (0=auto)",
             )
 
         with gr.Row():
@@ -442,7 +444,12 @@ def create_demo():
             outputs=status,
         ).then(
             fn=run,
-            inputs=[input_file, output_format, sample_frames, *config_controls.values()],
+            inputs=[
+                input_file,
+                output_format,
+                sample_frames,
+                *config_controls.values(),
+            ],
             outputs=[output_img, output_gif, output_video, status],
         )
 

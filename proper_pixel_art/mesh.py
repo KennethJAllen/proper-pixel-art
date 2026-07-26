@@ -750,7 +750,9 @@ def compute_mesh_from_edges(
                     f"{w}\t{score:.4f}" + ("\t<- chosen" if w == pixel_width else "")
                     for w, score in sorted(width_scores.items())
                 ]
-                (intermediate_dir / "width_scores.txt").write_text("\n".join(lines) + "\n")
+                (intermediate_dir / "width_scores.txt").write_text(
+                    "\n".join(lines) + "\n"
+                )
 
     mesh_x = homogenize_lines(
         lines_x, pixel_width, profile=profile_x, mesh_config=mesh_config

@@ -228,9 +228,7 @@ def test_pixelate_default_config_identity(assets):
     img = Image.open(assets / "blob" / "blob.png")
     default_result = pixelate(img)
     config_result = pixelate(img, config=PixelateConfig())
-    assert np.array_equal(
-        np.array(default_result.image), np.array(config_result.image)
-    )
+    assert np.array_equal(np.array(default_result.image), np.array(config_result.image))
     assert default_result.pixel_width == config_result.pixel_width
     assert default_result.mesh == config_result.mesh
 

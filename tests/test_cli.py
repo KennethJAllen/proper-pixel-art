@@ -130,7 +130,9 @@ def test_parse_args_video_flags() -> None:
 def test_parse_args_no_transparent() -> None:
     """BooleanOptionalAction: --no-transparent overrides a config's true."""
     assert cli.parse_args(["in.png", "-t"]).transparent_background is True
-    assert cli.parse_args(["in.png", "--no-transparent"]).transparent_background is False
+    assert (
+        cli.parse_args(["in.png", "--no-transparent"]).transparent_background is False
+    )
 
 
 def test_colors_flag_implies_palette_method() -> None:

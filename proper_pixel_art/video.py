@@ -171,7 +171,9 @@ def compute_video_mesh(
         aggregated_fallback,
         pixel_width=pixel_width,
         intermediate_dir=intermediate_dir,
-        original_img=frames[0].convert("RGBA") if intermediate_dir is not None else None,
+        original_img=frames[0].convert("RGBA")
+        if intermediate_dir is not None
+        else None,
         mesh_config=mesh_config,
         profiles=_edge_density_profiles(aggregated_fallback),
         score_image=np.stack(greys_fallback),
@@ -536,7 +538,7 @@ def pixelate_video(
     )
 
     # Pass 2: stream every frame through the pipeline. tqdm renders the CLI
-    # progress bar; under ppa-web, gr.Progress(track_tqdm=True) hooks the same
+    # progress bar; under 'ppa web', gr.Progress(track_tqdm=True) hooks the same
     # loop to drive the browser progress bar.
     total = info.n_frames if info.n_frames > 0 else None
     durations: list[int] = []

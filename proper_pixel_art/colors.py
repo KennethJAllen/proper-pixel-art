@@ -87,9 +87,7 @@ def clamp_alpha(
 
     if background_hex is None:
         common = top_opaque_colors(image, color_config)
-        bg_rgb = pick_background(
-            common, candidates=color_config.background_candidates
-        )
+        bg_rgb = pick_background(common, candidates=color_config.background_candidates)
     else:
         bg_rgb = ImageColor.getrgb(background_hex)
 
@@ -220,7 +218,9 @@ class ColorMerger:
         self.linkage = dominant.merge_linkage
         self.max_colors = dominant.max_linkage_colors
         self.alpha_threshold = (
-            ColorConfig().alpha_threshold if alpha_threshold is None else alpha_threshold
+            ColorConfig().alpha_threshold
+            if alpha_threshold is None
+            else alpha_threshold
         )
         self.representatives: list[RGB] = []
         self._mapping: dict[RGB, RGB] = {}

@@ -325,7 +325,9 @@ class TestColorMerger:
             + [(104, 102, 101, 255)] * 2
             + [(200, 50, 50, 255)] * 3
         )
-        merged = np.asarray(colors.merge_output_colors(img, DominantConfig(merge_distance=12)))
+        merged = np.asarray(
+            colors.merge_output_colors(img, DominantConfig(merge_distance=12))
+        )
         pixels = {tuple(p) for p in merged.reshape(-1, 4)}
         assert pixels == {(100, 100, 100, 255), (200, 50, 50, 255)}
 
@@ -336,7 +338,9 @@ class TestColorMerger:
 
     def test_transparent_pixels_untouched(self):
         img = self._image([(100, 100, 100, 255), (103, 100, 100, 0)])
-        merged = np.asarray(colors.merge_output_colors(img, DominantConfig(merge_distance=12)))
+        merged = np.asarray(
+            colors.merge_output_colors(img, DominantConfig(merge_distance=12))
+        )
         assert merged[0, 1, 3] == 0
         assert tuple(merged[0, 1, :3]) == (103, 100, 100)
 
@@ -367,14 +371,18 @@ class TestColorMerger:
 
     def test_complete_linkage_bounds_cluster_diameter(self):
         img = self._image(self._CHAIN)
-        merged = np.asarray(colors.merge_output_colors(img, DominantConfig(merge_distance=12)))
+        merged = np.asarray(
+            colors.merge_output_colors(img, DominantConfig(merge_distance=12))
+        )
         pixels = {tuple(p) for p in merged.reshape(-1, 4)}
         assert pixels == {(100, 100, 100, 255), (111, 100, 100, 255)}
 
     def test_single_linkage_chain_merges(self):
         img = self._image(self._CHAIN)
         merged = np.asarray(
-            colors.merge_output_colors(img, DominantConfig(merge_distance=12, merge_linkage="single"))
+            colors.merge_output_colors(
+                img, DominantConfig(merge_distance=12, merge_linkage="single")
+            )
         )
         pixels = {tuple(p) for p in merged.reshape(-1, 4)}
         assert pixels == {(100, 100, 100, 255)}
@@ -405,7 +413,9 @@ class TestColorMerger:
         rare = [(14, 10, 10, 255), (90, 90, 90, 255)]  # near / far from (10,10,10)
         img = self._image(frequent + rare)
 
-        merger = colors.ColorMerger(DominantConfig(merge_distance=12, max_linkage_colors=2)).fit([img])
+        merger = colors.ColorMerger(
+            DominantConfig(merge_distance=12, max_linkage_colors=2)
+        ).fit([img])
 
         assert len(merger.representatives) <= 2
         merged = np.asarray(merger.apply(img)).reshape(-1, 4)

@@ -28,6 +28,8 @@ def _palette_cfg(num_colors: int = 8, **top_level) -> PixelateConfig:
             **top_level,
         }
     )
+
+
 PALETTE = np.array(
     [(40, 180, 60), (200, 30, 30), (30, 30, 200), (240, 220, 80)], dtype=np.uint8
 )
@@ -466,9 +468,7 @@ class TestIntermediateDir:
         _save_gif(arrays, input_path, [50] * 4)
         inter = tmp_path / "inter"
 
-        video.pixelate_video(
-            input_path, tmp_path / "out.gif", intermediate_dir=inter
-        )
+        video.pixelate_video(input_path, tmp_path / "out.gif", intermediate_dir=inter)
 
         written = {p.name for p in inter.iterdir()}
         assert {"closed_edges.png", "lines.png", "mesh.png"} <= written
