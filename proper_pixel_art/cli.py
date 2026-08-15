@@ -16,6 +16,11 @@ from proper_pixel_art.diagnostics import diagnose_image, format_diagnostics
 # preserves animation and handles single-frame GIFs correctly.
 VIDEO_SUFFIXES = frozenset({".mp4", ".gif", ".webm", ".mov", ".avi", ".mkv", ".m4v"})
 
+# Effective defaults for flags that parse as None so that "not provided" is
+# observable (--diagnose warns about explicitly passed flags it ignores).
+DEFAULT_OUT_PATH = Path(".")
+DEFAULT_SAMPLE_FRAMES = 8
+
 
 def add_pixelation_args(
     parser: argparse.ArgumentParser,
@@ -120,10 +125,11 @@ def add_video_args(
         "--sample-frames",
         dest="sample_frames",
         type=int,
-        default=8,
+        default=None,
         help=(
-            "Number of frames to sample for mesh detection (default: 8). "
-            "Applies to video/GIF inputs only; ignored for images."
+            f"Number of frames to sample for mesh detection "
+            f"(default: {DEFAULT_SAMPLE_FRAMES}). "
+            f"Applies to video/GIF inputs only; ignored for images."
         ),
     )
 
@@ -225,10 +231,11 @@ def parse_args() -> argparse.Namespace:
         "--output",
         dest="out_path",
         type=Path,
-        default=Path("."),
+        default=None,
         help=(
             "Path where the pixelated image will be saved. "
-            "Can be either a directory or a file path."
+            "Can be either a directory or a file path "
+            "(default: the current directory)."
         ),
     )
 
@@ -246,6 +253,7 @@ def parse_args() -> argparse.Namespace:
     add_video_args(parser)
 
     args = parser.parse_args()
+    args.diagnose_ignored_flags = collect_ignored_diagnose_flags(parser, args)
 
     return resolve_input_path(parser, args)
 
@@ -255,7 +263,12 @@ def resolve_output_path(
     input_path: Path,
     suffix: str = "_pixelated",
 ) -> Path:
-    """Resolve the final output path."""
+    """
+    If out_path is a directory, make it a file path with filename
+    ``(input stem){suffix}.png`` (main passes the output size as the suffix,
+    e.g. ``sprite_128x128.png``). An out_path that already names a file is
+    returned unchanged.
+    """
     return utils.build_output_path(
         out_path,
         input_path,
@@ -264,33 +277,37 @@ def resolve_output_path(
     )
 
 
-# Flags that --diagnose does not act on, mapped to their user-facing names.
-# Only flags defaulting to None are listed: for those, a non-None value means
-# the user passed them explicitly. -o/--output and -n/--sample-frames have
-# non-None defaults, so an explicit value is indistinguishable from the
-# default and they are left out.
-DIAGNOSE_IGNORED_FLAGS = (
-    ("num_colors", "-c/--colors"),
-    ("scale_result", "-s/--scale-result"),
-    ("transparent_background", "-t/--transparent"),
-    ("pixel_width", "-w/--pixel-width"),
-    ("initial_upscale_factor", "-u/--initial-upscale"),
-    ("config", "--config"),
-    ("intermediate_dir", "--intermediate-dir"),
-    ("output_format", "-f/--format"),
-)
+# The only flags --diagnose acts on; every other flag defaults to None so a
+# non-None value proves the user passed it and earns a warning below.
+_DIAGNOSE_USED_DESTS = frozenset({"input_path_flag", "diagnose"})
+
+
+def collect_ignored_diagnose_flags(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> list[str]:
+    """List user-facing names of explicitly passed flags --diagnose ignores.
+
+    Derived from the parser's registered actions rather than a hand-written
+    table, so new flags are covered automatically. Positionals and the
+    built-in help/version actions (which default to SUPPRESS, not None) fall
+    out of the filters naturally.
+    """
+    return [
+        "/".join(action.option_strings)
+        for action in parser._actions
+        if action.option_strings
+        and action.default is None
+        and action.dest not in _DIAGNOSE_USED_DESTS
+        and getattr(args, action.dest) is not None
+    ]
 
 
 def warn_ignored_diagnose_flags(args: argparse.Namespace) -> None:
     """Warn about explicitly passed flags that ``--diagnose`` ignores."""
-    names = [
-        name
-        for dest, name in DIAGNOSE_IGNORED_FLAGS
-        if getattr(args, dest, None) is not None
-    ]
-
-    if names:
-        print(f"Warning: --diagnose ignores: {', '.join(names)}", file=sys.stderr)
+    if args.diagnose_ignored_flags:
+        ignored = ", ".join(args.diagnose_ignored_flags)
+        print(f"Warning: --diagnose ignores: {ignored}", file=sys.stderr)
 
 
 def run_diagnostics(input_path: Path) -> None:
@@ -306,8 +323,16 @@ def main() -> None:
     args = parse_args()
     input_path = Path(args.input_path).expanduser()
 
-    if not input_path.exists():
-        raise SystemExit(f"Input file does not exist: {input_path}")
+    # stat() (unlike exists()) distinguishes a missing file from one that is
+    # unreadable, e.g. behind a permission-blocked directory.
+    try:
+        input_path.stat()
+    except FileNotFoundError:
+        raise SystemExit(f"Input file does not exist: {input_path}") from None
+    except OSError as error:
+        raise SystemExit(
+            f"Cannot access input file: {input_path} ({error.strerror})"
+        ) from None
 
     if not input_path.is_file():
         raise SystemExit(f"Input path is not a file: {input_path}")
@@ -331,23 +356,33 @@ def main() -> None:
     # None values fall back to config or built-in defaults inside pixelate.
     overrides = collect_pixelation_overrides(args)
 
-    # Debug images go into a per-input subdirectory named after the input
-    # stem, for example: foo/wisp/.
+    # Debug images go in a per-input subdirectory named after the input stem
+    # (e.g. --intermediate-dir foo + wisp.mp4 -> foo/wisp/), mirroring the
+    # stem-based output-path convention and keeping multiple runs from
+    # clobbering each other in a shared directory.
     intermediate_dir = args.intermediate_dir
 
     if intermediate_dir is not None:
         intermediate_dir = intermediate_dir / input_path.stem
         intermediate_dir.mkdir(parents=True, exist_ok=True)
 
+    out_path = args.out_path if args.out_path is not None else DEFAULT_OUT_PATH
+
     if is_video:
         # Deferred import so image runs do not pay the video import cost.
         from proper_pixel_art import video
 
+        sample_frames = (
+            args.sample_frames
+            if args.sample_frames is not None
+            else DEFAULT_SAMPLE_FRAMES
+        )
+
         video.pixelate_video(
             input_path=input_path,
-            output_path=Path(args.out_path),
+            output_path=out_path,
             output_format=args.output_format,
-            num_sample_frames=args.sample_frames,
+            num_sample_frames=sample_frames,
             intermediate_dir=intermediate_dir,
             config=config,
             **overrides,
@@ -365,7 +400,7 @@ def main() -> None:
     width, height = pixelated.size
 
     out_path = resolve_output_path(
-        Path(args.out_path),
+        out_path,
         input_path,
         f"_{width}x{height}",
     )

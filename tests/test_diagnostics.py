@@ -8,7 +8,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from proper_pixel_art.diagnostics import diagnose_image, format_diagnostics
+from proper_pixel_art.colors import ALPHA_THRESHOLD
+from proper_pixel_art.diagnostics import (
+    build_recommendations,
+    diagnose_image,
+    format_diagnostics,
+)
 
 
 def _rgb_image(array: np.ndarray) -> Image.Image:
@@ -25,7 +30,7 @@ def test_noise_high_for_random_noise() -> None:
     assert diagnostics.noise_level == "high"
     assert any(
         "High-frequency variation" in recommendation
-        for recommendation in diagnostics.recommendations
+        for recommendation in build_recommendations(diagnostics)
     )
 
 
@@ -34,6 +39,18 @@ def test_noise_low_for_clean_pixel_art() -> None:
     rng = np.random.default_rng(1)
     cells = _rgb_image(rng.integers(0, 256, (32, 32, 3), dtype=np.uint8))
     image = cells.resize((512, 512), Image.Resampling.NEAREST)
+
+    assert diagnose_image(image).noise_level == "low"
+
+
+@pytest.mark.parametrize("pixel_width", [2, 3, 4, 6])
+def test_noise_low_for_small_pixel_widths(pixel_width: int) -> None:
+    """Clean art reads low even when its pixels are only a few image pixels
+    wide, where boundary transitions dominate the neighbor-pair population."""
+    rng = np.random.default_rng(1)
+    cells = _rgb_image(rng.integers(0, 256, (32, 32, 3), dtype=np.uint8))
+    size = 32 * pixel_width
+    image = cells.resize((size, size), Image.Resampling.NEAREST)
 
     assert diagnose_image(image).noise_level == "low"
 
@@ -49,8 +66,25 @@ def test_noise_moderate_for_mild_grain() -> None:
     assert diagnostics.noise_level == "moderate"
     assert any(
         "Moderate image variation" in recommendation
-        for recommendation in diagnostics.recommendations
+        for recommendation in build_recommendations(diagnostics)
     )
+
+
+def test_noise_moderate_for_grainy_pixel_art() -> None:
+    """Upscaled art with grain on top -- the AI-generated failure mode
+    --diagnose exists for -- is flagged rather than passed as clean."""
+    rng = np.random.default_rng(1)
+    cells = rng.integers(0, 256, (32, 32, 3), dtype=np.uint8)
+    upscaled = np.asarray(
+        _rgb_image(cells).resize((256, 256), Image.Resampling.NEAREST),
+        dtype=np.float64,
+    )
+    # Grain is shared across channels; independent per-channel noise partly
+    # averages out in the luma the estimate is computed on.
+    grain = rng.normal(0, 12, upscaled.shape[:2])
+    noisy = np.clip(upscaled + grain[:, :, None], 0, 255)
+
+    assert diagnose_image(_rgb_image(noisy)).noise_level != "low"
 
 
 def test_transparent_pixels_excluded() -> None:
@@ -66,7 +100,7 @@ def test_transparent_pixels_excluded() -> None:
     assert diagnostics.color_count == 0
     assert diagnostics.transparent_pixels == 64 * 64
     assert diagnostics.semi_transparent_pixels == 0
-    assert diagnostics.recommendations == ("No obvious cleanup recommendation.",)
+    assert build_recommendations(diagnostics) == ("No obvious cleanup recommendation.",)
 
 
 @pytest.mark.parametrize(
@@ -89,9 +123,21 @@ def test_color_count_ignores_transparent_colors(
     assert diagnostics.color_count == num_colors
     has_palette_recommendation = any(
         "--colors 16" in recommendation
-        for recommendation in diagnostics.recommendations
+        for recommendation in build_recommendations(diagnostics)
     )
     assert has_palette_recommendation is expect_palette_recommendation
+
+
+def test_color_count_uses_pipeline_alpha_threshold() -> None:
+    """Colors below colors.ALPHA_THRESHOLD are rendered fully transparent by
+    the pipeline, so they do not count as content."""
+    rgba = np.zeros((8, 8, 4), dtype=np.uint8)
+    rgba[..., 3] = 255
+    # A second color, hidden below the pipeline's opacity threshold.
+    rgba[0, :, :3] = 200
+    rgba[0, :, 3] = ALPHA_THRESHOLD - 1
+
+    assert diagnose_image(Image.fromarray(rgba, mode="RGBA")).color_count == 1
 
 
 def test_alpha_counts() -> None:
@@ -105,7 +151,7 @@ def test_alpha_counts() -> None:
     assert diagnostics.semi_transparent_pixels == 2
     assert any(
         "Semi-transparent pixels detected" in recommendation
-        for recommendation in diagnostics.recommendations
+        for recommendation in build_recommendations(diagnostics)
     )
 
 
