@@ -1,6 +1,25 @@
+"""Diagnostics for source images prior to pixel-art cleanup.
+
+Reports size, opaque color count, transparency stats, and a full-resolution
+noise estimate, with actionable CLI recommendations.
+"""
+
 from dataclasses import dataclass
 
+import numpy as np
 from PIL import Image
+
+# Neighbor difference (0-255 grayscale) counted as a "strong" transition.
+_STRONG_TRANSITION = 48.0
+
+# Noise bands, calibrated against full-resolution neighbor differences:
+# clean pixel art and the repository's source assets land under the moderate
+# cut, mild grain (sigma ~= 12) reads moderate, and uniform noise reads high.
+_HIGH_MEAN, _HIGH_RATIO = 24.0, 0.25
+_MODERATE_MEAN, _MODERATE_RATIO = 10.0, 0.08
+
+# Rec. 601 luma weights, matching PIL's "L" conversion.
+_LUMA_WEIGHTS = np.array([0.299, 0.587, 0.114], dtype=np.float32)
 
 
 @dataclass(frozen=True)
@@ -16,71 +35,58 @@ class ImageDiagnostics:
     recommendations: tuple[str, ...]
 
 
-def _estimate_noise_level(image: Image.Image) -> str:
+def _count_opaque_colors(rgba: np.ndarray, opaque: np.ndarray) -> int:
+    """Count distinct RGB values among pixels that carry any opacity."""
+    rgb = rgba[..., :3][opaque].astype(np.uint32)
+
+    if rgb.size == 0:
+        return 0
+
+    packed = (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
+
+    # Sort and count the value changes rather than calling np.unique, which is
+    # two orders of magnitude slower on megapixel inputs with many colors.
+    ordered = np.sort(packed)
+
+    return 1 + int(np.count_nonzero(np.diff(ordered)))
+
+
+def _estimate_noise_level(rgba: np.ndarray, opaque: np.ndarray) -> str:
     """Estimate high-frequency variation in an image.
 
-    This is a lightweight heuristic, not a machine-learning classifier.
-    It compares neighboring grayscale pixels after reducing the image size.
+    This is a lightweight heuristic, not a machine-learning classifier. It
+    compares neighboring grayscale pixels at full resolution; downscaling
+    first would low-pass away the very signal being measured.
     """
+    # Cast to float before differencing: uint8 subtraction wraps around.
+    gray = rgba[..., :3].astype(np.float32) @ _LUMA_WEIGHTS
 
-    grayscale = image.convert("L")
+    horizontal = np.abs(np.diff(gray, axis=1))
+    vertical = np.abs(np.diff(gray, axis=0))
 
-    max_dimension = max(grayscale.size)
+    # A pair counts only when both pixels are opaque. Masking (rather than
+    # compositing against a background) avoids counting the silhouette edge
+    # of a transparent cutout as image noise.
+    horizontal_valid = opaque[:, 1:] & opaque[:, :-1]
+    vertical_valid = opaque[1:, :] & opaque[:-1, :]
 
-    if max_dimension > 128:
-        scale = 128 / max_dimension
-        resized_size = (
-            max(1, round(grayscale.width * scale)),
-            max(1, round(grayscale.height * scale)),
-        )
-        grayscale = grayscale.resize(
-            resized_size,
-            Image.Resampling.BILINEAR,
-        )
+    differences = np.concatenate(
+        [horizontal[horizontal_valid], vertical[vertical_valid]]
+    )
 
-    width, height = grayscale.size
-
-    if width < 2 or height < 2:
+    if differences.size == 0:
         return "low"
 
-    pixels = list(grayscale.getdata())
+    average_difference = float(differences.mean())
+    strong_transition_ratio = float((differences >= _STRONG_TRANSITION).mean())
 
-    total_difference = 0
-    comparisons = 0
-    strong_transitions = 0
-
-    for y in range(height):
-        row_start = y * width
-
-        for x in range(width):
-            current = pixels[row_start + x]
-
-            if x + 1 < width:
-                difference = abs(current - pixels[row_start + x + 1])
-                total_difference += difference
-                comparisons += 1
-
-                if difference >= 48:
-                    strong_transitions += 1
-
-            if y + 1 < height:
-                difference = abs(current - pixels[row_start + width + x])
-                total_difference += difference
-                comparisons += 1
-
-                if difference >= 48:
-                    strong_transitions += 1
-
-    if comparisons == 0:
-        return "low"
-
-    average_difference = total_difference / comparisons
-    strong_transition_ratio = strong_transitions / comparisons
-
-    if average_difference >= 32 or strong_transition_ratio >= 0.35:
+    if average_difference >= _HIGH_MEAN or strong_transition_ratio >= _HIGH_RATIO:
         return "high"
 
-    if average_difference >= 16 or strong_transition_ratio >= 0.18:
+    if (
+        average_difference >= _MODERATE_MEAN
+        or strong_transition_ratio >= _MODERATE_RATIO
+    ):
         return "moderate"
 
     return "low"
@@ -88,21 +94,24 @@ def _estimate_noise_level(image: Image.Image) -> str:
 
 def diagnose_image(image: Image.Image) -> ImageDiagnostics:
     """Analyze an image and return pixel-art cleanup diagnostics."""
-    rgba_image = image.convert("RGBA")
+    rgba = np.asarray(image.convert("RGBA"))
 
-    width, height = rgba_image.size
+    height, width = rgba.shape[:2]
 
-    colors = rgba_image.convert("RGB").getcolors(maxcolors=16_777_216)
+    alpha = rgba[..., 3]
 
-    color_count = len(colors) if colors is not None else 16_777_217
+    # Fully transparent pixels carry no visible color, so they are excluded
+    # from both the color count and the noise estimate. Semi-transparent
+    # pixels are still content and count toward both.
+    opaque = alpha > 0
 
-    alpha_values = list(rgba_image.getchannel("A").getdata())
+    color_count = _count_opaque_colors(rgba, opaque)
 
-    transparent_pixels = sum(alpha == 0 for alpha in alpha_values)
+    transparent_pixels = int(np.count_nonzero(alpha == 0))
 
-    semi_transparent_pixels = sum(0 < alpha < 255 for alpha in alpha_values)
+    semi_transparent_pixels = int(np.count_nonzero((alpha > 0) & (alpha < 255)))
 
-    noise_level = _estimate_noise_level(rgba_image)
+    noise_level = _estimate_noise_level(rgba, opaque)
 
     recommendations: list[str] = []
 

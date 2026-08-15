@@ -204,6 +204,7 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 | `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. Use 0 to determine it automatically. (default: 0)                 |
 | `--config` `<path>`               | YAML config file of pixelation parameters. Flags passed explicitly override values in the file. (default: none) |
 | `--intermediate-dir` `<path>`     | Directory to save images visualizing intermediate algorithm steps. Useful for development. (default: none) |
+| `--diagnose`                      | Analyze the input image and print a diagnostic report (size, colors, transparency, noise) instead of pixelating. Still images only. (default: off) |
 
 #### Example
 

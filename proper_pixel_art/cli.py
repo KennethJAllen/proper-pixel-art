@@ -1,6 +1,7 @@
 """Command line interface."""
 
 import argparse
+import sys
 from importlib.metadata import version
 from pathlib import Path
 
@@ -80,12 +81,6 @@ def add_pixelation_args(
             "If the detected spacing is too large, it may be useful to "
             "increase this value."
         ),
-    )
-
-    parser.add_argument(
-        "--diagnose",
-        action="store_true",
-        help="Analyze the input image without pixelating it.",
     )
 
     return parser
@@ -237,6 +232,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help=(
+            "Analyze the input image and print a diagnostic report "
+            "instead of pixelating it."
+        ),
+    )
+
     add_config_args(parser)
     add_pixelation_args(parser)
     add_video_args(parser)
@@ -258,6 +262,35 @@ def resolve_output_path(
         suffix,
         ext="png",
     )
+
+
+# Flags that --diagnose does not act on, mapped to their user-facing names.
+# Only flags defaulting to None are listed: for those, a non-None value means
+# the user passed them explicitly. -o/--output and -n/--sample-frames have
+# non-None defaults, so an explicit value is indistinguishable from the
+# default and they are left out.
+DIAGNOSE_IGNORED_FLAGS = (
+    ("num_colors", "-c/--colors"),
+    ("scale_result", "-s/--scale-result"),
+    ("transparent_background", "-t/--transparent"),
+    ("pixel_width", "-w/--pixel-width"),
+    ("initial_upscale_factor", "-u/--initial-upscale"),
+    ("config", "--config"),
+    ("intermediate_dir", "--intermediate-dir"),
+    ("output_format", "-f/--format"),
+)
+
+
+def warn_ignored_diagnose_flags(args: argparse.Namespace) -> None:
+    """Warn about explicitly passed flags that ``--diagnose`` ignores."""
+    names = [
+        name
+        for dest, name in DIAGNOSE_IGNORED_FLAGS
+        if getattr(args, dest, None) is not None
+    ]
+
+    if names:
+        print(f"Warning: --diagnose ignores: {', '.join(names)}", file=sys.stderr)
 
 
 def run_diagnostics(input_path: Path) -> None:
@@ -287,6 +320,8 @@ def main() -> None:
                 "--diagnose currently supports still images only. "
                 "Video and GIF diagnostics are not supported yet."
             )
+
+        warn_ignored_diagnose_flags(args)
 
         run_diagnostics(input_path)
         return
