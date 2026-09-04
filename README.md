@@ -247,8 +247,8 @@ from proper_pixel_art import PixelateConfig, pixelate
 config = PixelateConfig.from_dict(
     {"colors": {"method": "palette", "palette": {"num_colors": 16}}}
 )
-result = pixelate(Image.open('path/to/input.png'), config=config)
-result.image.save('path/to/output.png')
+result = pixelate(Image.open("path/to/input.png"), config=config)
+result.image.save("path/to/output.png")
 ```
 
 Videos and GIFs have their own entry point:
@@ -256,7 +256,7 @@ Videos and GIFs have their own entry point:
 ```python
 from proper_pixel_art import pixelate_video
 
-pixelate_video('input.mp4', 'output.gif', config=config)
+pixelate_video("input.mp4", "output.gif", config=config)
 ```
 
 #### Parameters
@@ -287,9 +287,9 @@ All tunable parameters can be collected in a YAML file so you can fine-tune the 
 from PIL import Image
 from proper_pixel_art import PixelateConfig, pixelate
 
-config = PixelateConfig.from_yaml('config.yaml')
-result = pixelate(Image.open('input.png'), config=config)
-result.image.save('output.png')
+config = PixelateConfig.from_yaml("config.yaml")
+result = pixelate(Image.open("input.png"), config=config)
+result.image.save("output.png")
 ```
 
 From the CLI, pass `--config`. Flags given explicitly override values from the file:
