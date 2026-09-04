@@ -10,11 +10,12 @@ from itertools import product
 from pathlib import Path
 
 import numpy as np
+import reference_colors
 from PIL import Image
 
-from proper_pixel_art import colors, pixelate
-from proper_pixel_art.config import ColorConfig
-from proper_pixel_art.pixelate import build_cell_map, downsample
+from proper_pixel_art import pixelate
+from proper_pixel_art.config import ColorConfig, DominantConfig, PixelateConfig
+from proper_pixel_art.image import build_cell_map, downsample
 from proper_pixel_art.utils import Mesh
 
 
@@ -29,13 +30,15 @@ def test_pixelate_pngs(
         img = Image.open(params["path"])
         result = pixelate(
             img,
-            num_colors=params["num_colors"],
-            scale_result=params["result_scale"],
-            transparent_background=params["transparent_background"],
+            config=PixelateConfig.from_dict(params["config"]),
             intermediate_dir=intermediate_dir,
         )
 
-        assert result.width > 0 and result.height > 0, f"Invalid dimensions for {name}"
+        assert result.image.width > 0 and result.image.height > 0, (
+            f"Invalid dimensions for {name}"
+        )
+        assert result.pixel_width >= 1
+        assert len(result.mesh[0]) > 2 and len(result.mesh[1]) > 2
 
 
 def _downsample_reference(
@@ -64,22 +67,22 @@ def _downsample_reference(
         cell = img_array[y0:y1, x0:x1]
 
         if skip_quantization:
-            out[j, i] = colors.get_cell_color_skip_quantization(
+            out[j, i] = reference_colors.get_cell_color_skip_quantization(
                 cell,
                 alpha_threshold=color_config.alpha_threshold,
                 majority_fraction=color_config.transparency_majority_fraction,
-                bin_size=color_config.bin_size,
+                bin_size=color_config.dominant.bin_size,
             )
         elif original_alpha is not None:
             cell_alpha = original_alpha[y0:y1, x0:x1]
-            out[j, i] = colors.get_cell_color_with_alpha(
+            out[j, i] = reference_colors.get_cell_color_with_alpha(
                 cell,
                 cell_alpha,
                 alpha_threshold=color_config.alpha_threshold,
                 majority_fraction=color_config.transparency_majority_fraction,
             )
         else:
-            out[j, i] = colors.get_opaque_cell_color(cell)
+            out[j, i] = reference_colors.get_opaque_cell_color(cell)
 
     return Image.fromarray(out, mode="RGBA")
 
@@ -178,6 +181,34 @@ class TestDownsampleMatchesReference:
         result = downsample(image, mesh_lines, skip_quantization=True)
         reference = _downsample_reference(image, mesh_lines, skip_quantization=True)
         np.testing.assert_array_equal(np.array(result), np.array(reference))
+
+    def test_bin_size_one_matches_reference_without_dense_rgb_cube(self):
+        """The smallest valid bin size must stay proportional to input size."""
+        rng = np.random.default_rng(11)
+        mesh_lines = ([0, 4, 8], [0, 4, 8])
+        rgba = rng.integers(0, 256, size=(8, 8, 4), dtype=np.uint8)
+        rgba[..., 3] = 255
+        # Give every cell an unambiguous exact-color mode.
+        expected = np.array(
+            [[[10, 20, 30], [40, 50, 60]], [[70, 80, 90], [100, 110, 120]]],
+            dtype=np.uint8,
+        )
+        for row in range(2):
+            for col in range(2):
+                rgba[row * 4 : row * 4 + 2, col * 4 : col * 4 + 2, :3] = expected[
+                    row, col
+                ]
+        image = Image.fromarray(rgba, mode="RGBA")
+        config = ColorConfig(dominant=DominantConfig(bin_size=1))
+
+        result = downsample(
+            image,
+            mesh_lines,
+            skip_quantization=True,
+            color_config=config,
+        )
+        np.testing.assert_array_equal(np.array(result)[..., :3], expected)
+        assert np.all(np.array(result)[..., 3] == 255)
 
     def test_quantized_path_with_alpha(self):
         rng = np.random.default_rng(2)

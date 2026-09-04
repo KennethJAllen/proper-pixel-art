@@ -11,9 +11,37 @@ from pathlib import Path
 
 import numpy as np
 import yaml
-from PIL.Image import Quantize
+from PIL.Image import Dither, Quantize
 
 RGB = tuple[int, int, int]
+
+# Schema version read by this release; YAML configs may declare it as a
+# top-level ``version`` key.
+CONFIG_VERSION = 2
+
+_CHANGELOG_HINT = (
+    " If this config was written for a release before 2.0.0, "
+    "see CHANGELOG.md for the key changes."
+)
+
+# Removed schema keys with direct replacements. These remain errors—the v2
+# schema has one canonical spelling—but give users an actionable migration
+# instead of making them search the changelog for a familiar key.
+_MOVED_KEYS = {
+    "PixelateConfig": {
+        "num_colors": "colors.palette.num_colors (and set colors.method: palette)",
+    },
+    "MeshConfig": {
+        "width_selection_tolerance": "mesh.width_keep_tolerance",
+        "width_replacement_tolerance": "mesh.width_replace_tolerance",
+    },
+    "ColorConfig": {
+        "num_colors": "colors.palette.num_colors (and set colors.method: palette)",
+        "quantize_method": "colors.palette.quantize_method",
+        "bin_size": "colors.dominant.bin_size",
+        "output_color_merge_distance": "colors.dominant.merge_distance",
+    },
+}
 
 
 @dataclass
@@ -42,32 +70,48 @@ class MeshConfig:
     cluster_threshold: int = 4  # max distance (px) to merge nearby grid lines
     angle_threshold_deg: float = 15  # tolerance for vertical/horizontal lines
     trim_outlier_fraction: float = 0.2  # tail fraction trimmed for pixel-width estimate
+    snap_lines: bool = True  # snap interpolated grid lines to gradient-profile peaks
+    snap_search_window_ratio: float = 0.35  # search window as fraction of pixel width
+    snap_min_search_window: int = 2  # minimum search window in pixels
+    snap_strength_threshold: float = 0.5  # peak must exceed this x mean profile to snap
+    anchor_snap_window: int = 2  # snap detected (anchor) lines to peaks within this px
+    max_axis_width_ratio: float = (
+        1.8  # per-axis width estimates further apart than this -> smaller wins
+    )
+    validate_width: bool = True  # score candidate widths by within-cell variance
+    width_keep_tolerance: float = (
+        1.5  # replace the estimated width only when it scores (1 + this) x the best
+    )
+    width_replace_tolerance: float = (
+        0.2  # on correction, accept a replacement scoring within (1 + this) x the best
+    )
+    profile_width_min_gaps: int = (
+        5  # fewer Hough gaps than this -> profile width estimate
+    )
+    split_leftover_fraction: float = (
+        0.4  # leftover fraction of pixel width that earns an extra grid line
+    )
     hough: HoughConfig = field(default_factory=HoughConfig)
 
 
 @dataclass
-class ColorConfig:
-    """Parameters controlling color selection, quantization and transparency."""
+class PaletteConfig:
+    """Parameters for the palette-quantization method (``method: palette``).
 
-    alpha_threshold: int = 128  # alpha >= this is opaque (0-255)
-    transparency_majority_fraction: float = (
-        0.5  # cell transparent if >= this fraction is transparent
-    )
+    The image is quantized to ``num_colors`` with PIL's ``Image.quantize`` and
+    each mesh cell takes its most common palette color.
+    """
+
+    num_colors: int = 16  # palette size (1-256)
     quantize_method: str = "MAXCOVERAGE"  # PIL.Image.Quantize member name
-    bin_size: int = 52  # RGB bin size for skip-quantization dominant color
-    top_colors_limit: int = 8  # common colors sampled to pick a background
-    thumbnail_size: tuple[int, int] = (160, 160)  # downscale size for color analysis
-    background_candidates: list[RGB] | None = None  # override background palette
+    dither: str = "NONE"  # PIL.Image.Dither member name (NONE, FLOYDSTEINBERG, ...)
+    kmeans: int = 0  # PIL quantize() k-means refinement iterations; 0 disables
 
     def __post_init__(self) -> None:
-        # bin_size is a divisor in dominant_rgb_by_binning (num_bins =
-        # 255 // bin_size + 1); 0 would raise an opaque ZeroDivisionError later.
-        if self.bin_size < 1:
-            raise ValueError(f"bin_size must be >= 1, got {self.bin_size}.")
-        # Normalize YAML lists-of-lists into RGB tuples. _build skips this field
-        # because its default is None rather than a tuple.
-        if self.background_candidates is not None:
-            self.background_candidates = [tuple(c) for c in self.background_candidates]
+        if not 1 <= self.num_colors <= 256:
+            raise ValueError(f"num_colors must be in 1-256, got {self.num_colors}.")
+        if self.kmeans < 0:
+            raise ValueError(f"kmeans must be >= 0, got {self.kmeans}.")
 
     @property
     def quantize(self) -> int:
@@ -81,24 +125,155 @@ class ColorConfig:
                 f"Valid options: {valid}."
             ) from exc
 
+    @property
+    def dither_mode(self) -> int:
+        """Resolve ``dither`` to a ``PIL.Image.Dither`` value."""
+        try:
+            return getattr(Dither, self.dither)
+        except AttributeError as exc:
+            valid = ", ".join(d.name for d in Dither)
+            raise ValueError(
+                f"Unknown dither {self.dither!r}. Valid options: {valid}."
+            ) from exc
+
+
+@dataclass
+class DominantConfig:
+    """Parameters for the dominant-color method (``method: dominant``).
+
+    Original colors are preserved: each mesh cell picks its dominant color via
+    offset binning, then near-duplicate output colors are merged by
+    agglomerative clustering so flat areas collapse to a single color.
+    """
+
+    bin_size: int = 52  # RGB bin size for the per-cell dominant color
+    merge_distance: int = (
+        12  # merge output colors closer than this (Euclidean RGB); 0 disables
+    )
+    merge_linkage: str = (
+        "complete"  # scipy linkage criterion: "complete", "average" or "single"
+    )
+    max_linkage_colors: int = (
+        4096  # cap on unique colors fitted by clustering (bounds memory)
+    )
+
+    def __post_init__(self) -> None:
+        # bin_size is a divisor in dominant_rgb_by_binning (num_bins =
+        # 255 // bin_size + 1); 0 would raise an opaque ZeroDivisionError later.
+        if self.bin_size < 1:
+            raise ValueError(f"bin_size must be >= 1, got {self.bin_size}.")
+        # Restrict to criteria whose cut height is in Euclidean RGB units, so
+        # merge_distance keeps its meaning (ward/centroid/median cut heights
+        # are not plain distances).
+        if self.merge_linkage not in ("complete", "average", "single"):
+            raise ValueError(
+                f"Unknown merge_linkage {self.merge_linkage!r}. "
+                f"Valid options: complete, average, single."
+            )
+        # scipy linkage needs at least 2 observations to fit anything.
+        if self.max_linkage_colors < 2:
+            raise ValueError(
+                f"max_linkage_colors must be >= 2, got {self.max_linkage_colors}."
+            )
+
+
+@dataclass
+class ColorConfig:
+    """Parameters controlling color selection, quantization and transparency.
+
+    ``method`` selects between the two quantization methods, whose specific
+    knobs live in the ``palette`` and ``dominant`` sub-configs; the remaining
+    fields apply to both.
+    """
+
+    method: str = "dominant"  # "dominant" (preserve colors) or "palette" (quantize)
+    alpha_threshold: int = 128  # alpha >= this is opaque (0-255)
+    transparency_majority_fraction: float = (
+        0.5  # cell transparent if >= this fraction is transparent
+    )
+    top_colors_limit: int = 8  # common colors sampled to pick a background
+    thumbnail_size: tuple[int, int] = (160, 160)  # downscale size for color analysis
+    background_candidates: list[RGB] | None = None  # override background palette
+    palette: "PaletteConfig" = field(default_factory=PaletteConfig)
+    dominant: "DominantConfig" = field(default_factory=DominantConfig)
+
+    def __post_init__(self) -> None:
+        if self.method not in ("dominant", "palette"):
+            raise ValueError(
+                f"Unknown color method {self.method!r}. "
+                f"Valid options: dominant, palette."
+            )
+        # Normalize YAML lists-of-lists into RGB tuples. _build skips this field
+        # because its default is None rather than a tuple.
+        if self.background_candidates is not None:
+            self.background_candidates = [tuple(c) for c in self.background_candidates]
+
+
+@dataclass
+class VideoConfig:
+    """Parameters for the video/GIF pipeline (ignored for still images)."""
+
+    output_format: str = "gif"  # "gif" or "mp4"; an explicit output suffix wins
+    num_sample_frames: int = 8  # frames sampled for mesh/palette detection
+    # Keep a grid edge if it appears in at least this fraction of sampled
+    # frames. In clean pixel-art video every content edge lies on the grid, so
+    # a low threshold strengthens the Hough evidence; requiring more than one
+    # frame still suppresses single-frame compression noise. A strict majority
+    # vote would erase grid segments only visible where moving content happens
+    # to create contrast.
+    min_vote_fraction: float = 0.25
+
+    def __post_init__(self) -> None:
+        if self.output_format not in ("gif", "mp4"):
+            raise ValueError(
+                f"Unknown output_format {self.output_format!r}. "
+                f"Valid options: gif, mp4."
+            )
+        if self.num_sample_frames < 1:
+            raise ValueError(
+                f"num_sample_frames must be >= 1, got {self.num_sample_frames}."
+            )
+        if not 0 < self.min_vote_fraction <= 1:
+            raise ValueError(
+                f"min_vote_fraction must be in (0, 1], got {self.min_vote_fraction}."
+            )
+
 
 @dataclass
 class PixelateConfig:
-    """Top-level configuration for :func:`proper_pixel_art.pixelate.pixelate`.
+    """Top-level configuration for :func:`proper_pixel_art.image.pixelate`.
 
-    Three fields use numeric sentinels rather than ``None`` for their special
-    states, leaving ``None`` free to mean "not provided" in ``pixelate`` kwargs:
-    ``num_colors=0`` skips quantization, ``scale_result=1`` means no scaling, and
-    ``pixel_width=0`` auto-detects the pixel width.
+    ``scale_result=None`` means no output scaling and ``pixel_width=None``
+    auto-detects the pixel width. The quantization method is selected by
+    ``colors.method``.
     """
 
-    num_colors: int = 0
     initial_upscale_factor: int = 2
-    scale_result: int = 1
+    scale_result: int | None = None
     transparent_background: bool = False
-    pixel_width: int = 0
+    pixel_width: int | None = None
     mesh: MeshConfig = field(default_factory=MeshConfig)
     colors: ColorConfig = field(default_factory=ColorConfig)
+    video: VideoConfig = field(default_factory=VideoConfig)
+
+    def __post_init__(self) -> None:
+        # 0 was the pre-2.0 "auto"/"no scaling" sentinel; reject it loudly so
+        # old configs fail with a pointer instead of silently misbehaving.
+        if self.scale_result is not None and self.scale_result < 1:
+            raise ValueError(
+                f"scale_result must be >= 1 or null, got {self.scale_result}."
+                + _CHANGELOG_HINT
+            )
+        if self.pixel_width is not None and self.pixel_width < 1:
+            raise ValueError(
+                f"pixel_width must be >= 1 or null (auto-detect), got "
+                f"{self.pixel_width}." + _CHANGELOG_HINT
+            )
+        if self.initial_upscale_factor < 1:
+            raise ValueError(
+                f"initial_upscale_factor must be >= 1, "
+                f"got {self.initial_upscale_factor}."
+            )
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "PixelateConfig":
@@ -113,16 +288,35 @@ class PixelateConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "PixelateConfig":
-        """Build a config from a (possibly partial, nested) dict."""
+        """Build a config from a (possibly partial, nested) dict.
+
+        An optional top-level ``version`` key declares the schema version; when
+        present it must be ``2`` (the schema this release reads).
+        """
         data = dict(data)
+        version = data.pop("version", None)
+        if version is not None and version != CONFIG_VERSION:
+            raise ValueError(
+                f"Unsupported config version {version!r}; this release reads "
+                f"version {CONFIG_VERSION} configs." + _CHANGELOG_HINT
+            )
         # Copy nested dicts before popping so the caller's input isn't mutated.
         mesh_data = dict(data.pop("mesh", None) or {})
         colors_data = dict(data.pop("colors", None) or {})
+        video_data = dict(data.pop("video", None) or {})
         hough_data = dict(mesh_data.pop("hough", None) or {})
+        palette_data = dict(colors_data.pop("palette", None) or {})
+        dominant_data = dict(colors_data.pop("dominant", None) or {})
 
         mesh = _build(MeshConfig, mesh_data, hough=_build(HoughConfig, hough_data))
-        colors = _build(ColorConfig, colors_data)
-        return _build(cls, data, mesh=mesh, colors=colors)
+        colors = _build(
+            ColorConfig,
+            colors_data,
+            palette=_build(PaletteConfig, palette_data),
+            dominant=_build(DominantConfig, dominant_data),
+        )
+        video = _build(VideoConfig, video_data)
+        return _build(cls, data, mesh=mesh, colors=colors, video=video)
 
 
 def _build(dc_type, data: dict, **nested):
@@ -137,8 +331,17 @@ def _build(dc_type, data: dict, **nested):
     valid = {f.name for f in fields(dc_type)}
     unknown = set(data) - valid
     if unknown:
+        moved = _MOVED_KEYS.get(dc_type.__name__, {})
+        migrations = [
+            f"{key!r} was replaced by {moved[key]}"
+            for key in sorted(unknown)
+            if key in moved
+        ]
+        migration_hint = f" {'; '.join(migrations)}." if migrations else ""
         raise ValueError(
-            f"Unknown config key(s) for {dc_type.__name__}: {sorted(unknown)}"
+            f"Unknown config key(s) for {dc_type.__name__}: {sorted(unknown)}."
+            + migration_hint
+            + _CHANGELOG_HINT
         )
     overrides = dict(nested)
     for key, value in data.items():

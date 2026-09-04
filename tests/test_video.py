@@ -17,10 +17,49 @@ from proper_pixel_art.config import PixelateConfig
 
 LOGICAL_SIZE = 16
 PIXEL_WIDTH = 10
+
+
+def _palette_cfg(num_colors: int = 8, **top_level) -> PixelateConfig:
+    """Config selecting the palette method with ``num_colors``; ``top_level``
+    keys are merged at the top of the config dict."""
+    return PixelateConfig.from_dict(
+        {
+            "colors": {"method": "palette", "palette": {"num_colors": num_colors}},
+            **top_level,
+        }
+    )
+
+
 PALETTE = np.array(
     [(40, 180, 60), (200, 30, 30), (30, 30, 200), (240, 220, 80)], dtype=np.uint8
 )
 BACKGROUND = (40, 180, 60)
+
+
+def test_video_explicit_pixel_width_is_scaled_for_upscaled_mesh(monkeypatch):
+    """Video mesh detection interprets configured widths in source coordinates."""
+    captured = {}
+    grey = np.zeros((12, 12), dtype=np.uint8)
+
+    monkeypatch.setattr(video, "_scaled_greys", lambda *args, **kwargs: [grey])
+    monkeypatch.setattr(
+        video, "aggregate_edge_maps", lambda *args, **kwargs: np.zeros_like(grey)
+    )
+
+    def fake_compute_mesh_from_edges(*args, **kwargs):
+        captured["pixel_width"] = kwargs["pixel_width"]
+        return ([0, 4, 8, 11], [0, 4, 8, 11]), kwargs["pixel_width"]
+
+    monkeypatch.setattr(
+        video.mesh, "compute_mesh_from_edges", fake_compute_mesh_from_edges
+    )
+
+    _, factor = video.compute_video_mesh(
+        [Image.new("RGBA", (6, 6))], upscale_factor=2, pixel_width=3
+    )
+
+    assert captured["pixel_width"] == 6
+    assert factor == 2
 
 
 def _logical_frames(
@@ -135,7 +174,7 @@ class TestGifRoundtrip:
         _save_gif(arrays, input_path, durations)
 
         output_path = video.pixelate_video(
-            input_path, tmp_path / "out.gif", num_colors=8
+            input_path, tmp_path / "out.gif", config=_palette_cfg()
         )
 
         with Image.open(output_path) as result:
@@ -159,7 +198,7 @@ class TestGifRoundtrip:
         _save_gif(arrays, input_path, [50, 50, 50])
 
         output_path = video.pixelate_video(
-            input_path, tmp_path / "out.gif", num_colors=8, scale_result=4
+            input_path, tmp_path / "out.gif", config=_palette_cfg(scale_result=4)
         )
         with Image.open(output_path) as result:
             assert result.size == (LOGICAL_SIZE * 4, LOGICAL_SIZE * 4)
@@ -172,7 +211,7 @@ class TestMp4Output:
         _save_mp4(arrays, input_path)
 
         output_path = video.pixelate_video(
-            input_path, tmp_path / "out.mp4", num_colors=8, scale_result=4
+            input_path, tmp_path / "out.mp4", config=_palette_cfg(scale_result=4)
         )
 
         cap = cv2.VideoCapture(str(output_path))
@@ -229,7 +268,9 @@ class TestMp4Output:
         _save_gif(arrays, input_path, [50, 50, 50, 50])
 
         output_path = video.pixelate_video(
-            input_path, tmp_path / "out", num_colors=8, output_format="mp4"
+            input_path,
+            tmp_path / "out",
+            config=_palette_cfg(video={"output_format": "mp4"}),
         )
         assert output_path.suffix == ".mp4"
         assert output_path.exists()
@@ -242,18 +283,22 @@ class TestOutputFormat:
         _save_gif(arrays, input_path, [50, 50])
 
         with pytest.raises(ValueError, match="Unsupported output format"):
-            video.pixelate_video(input_path, tmp_path / "out.webm", num_colors=8)
+            video.pixelate_video(input_path, tmp_path / "out.webm")
 
-    def test_unsupported_input_extension_falls_back_to_mp4(self, tmp_path: Path):
-        """Format inferred from a non-mp4/gif *input* stays best-effort: the
-        output is written as mp4 rather than erroring."""
+    @pytest.mark.parametrize("input_ext", [".gif", ".mp4", ".webm"])
+    def test_directory_output_defaults_to_gif(self, tmp_path: Path, input_ext: str):
+        """Without an output extension the format is GIF, whatever the input is."""
         arrays = _make_noisy_arrays(2)
-        input_path = tmp_path / "anim.gif"
-        _save_gif(arrays, input_path, [50, 50])
-        webm_path = input_path.rename(tmp_path / "anim.webm")
+        gif_path = tmp_path / "anim.gif"
+        _save_gif(arrays, gif_path, [50, 50])
+        input_path = (
+            gif_path
+            if input_ext == ".gif"
+            else gif_path.rename(tmp_path / f"anim{input_ext}")
+        )
 
-        output_path = video.pixelate_video(webm_path, tmp_path, num_colors=8)
-        assert output_path.suffix == ".mp4"
+        output_path = video.pixelate_video(input_path, tmp_path, config=_palette_cfg())
+        assert output_path.suffix == ".gif"
         assert output_path.exists()
 
 
@@ -267,7 +312,7 @@ class TestOutputNaming:
         out_dir = tmp_path / "out"
 
         output_path = video.pixelate_video(
-            input_path, out_dir, num_colors=8, scale_result=2
+            input_path, out_dir, config=_palette_cfg(scale_result=2)
         )
 
         size = LOGICAL_SIZE * 2
@@ -321,8 +366,7 @@ class TestTransparentBackground:
         output_path = video.pixelate_video(
             input_path,
             tmp_path / "out.gif",
-            num_colors=8,
-            transparent_background=True,
+            config=_palette_cfg(transparent_background=True),
         )
 
         with Image.open(output_path) as result:
@@ -342,7 +386,12 @@ class TestConfigSupport:
         arrays = _make_noisy_arrays(3)
         input_path = tmp_path / "anim.gif"
         _save_gif(arrays, input_path, [50] * 3)
-        cfg = PixelateConfig.from_dict({"num_colors": 8, "scale_result": 4})
+        cfg = PixelateConfig.from_dict(
+            {
+                "colors": {"method": "palette", "palette": {"num_colors": 8}},
+                "scale_result": 4,
+            }
+        )
 
         output_path = video.pixelate_video(input_path, tmp_path / "out.gif", config=cfg)
 
@@ -350,24 +399,18 @@ class TestConfigSupport:
             assert result.size == (LOGICAL_SIZE * 4, LOGICAL_SIZE * 4)
             _assert_colors_near_palette(result)
 
-    def test_explicit_args_override_config(self, tmp_path: Path):
-        """Explicit scalar kwargs beat the corresponding config values."""
-        arrays = _make_noisy_arrays(3)
+    def test_output_path_suffix_wins_over_config_format(self, tmp_path: Path):
+        """A .gif output path beats video.output_format: mp4 in the config."""
+        arrays = _make_noisy_arrays(2)
         input_path = tmp_path / "anim.gif"
-        _save_gif(arrays, input_path, [50] * 3)
-        cfg = PixelateConfig.from_dict({"num_colors": 8, "scale_result": 4})
+        _save_gif(arrays, input_path, [50, 50])
 
         output_path = video.pixelate_video(
-            input_path, tmp_path / "out.gif", num_colors=2, scale_result=2, config=cfg
+            input_path,
+            tmp_path / "out.gif",
+            config=_palette_cfg(video={"output_format": "mp4"}),
         )
-
-        with Image.open(output_path) as result:
-            # Explicit scale_result=2 beats config's 4
-            assert result.size == (LOGICAL_SIZE * 2, LOGICAL_SIZE * 2)
-            # Explicit num_colors=2 beats config's 8: the 4-color fixture
-            # collapses to at most 2 colors
-            rgb = np.asarray(result.convert("RGB")).reshape(-1, 3)
-            assert len(np.unique(rgb, axis=0)) <= 2
+        assert output_path.suffix == ".gif"
 
     def test_config_reaches_mesh_and_color_stages(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -378,9 +421,12 @@ class TestConfigSupport:
         _save_gif(arrays, input_path, [50] * 3)
         cfg = PixelateConfig.from_dict(
             {
-                "num_colors": 8,
                 "mesh": {"closure_kernel_size": 6},
-                "colors": {"top_colors_limit": 4},
+                "colors": {
+                    "method": "palette",
+                    "top_colors_limit": 4,
+                    "palette": {"num_colors": 8},
+                },
             }
         )
         captured = {}
@@ -418,7 +464,10 @@ class TestIntermediateDir:
         inter = tmp_path / "inter"
 
         video.pixelate_video(
-            input_path, tmp_path / "out.gif", num_colors=8, intermediate_dir=inter
+            input_path,
+            tmp_path / "out.gif",
+            config=_palette_cfg(),
+            intermediate_dir=inter,
         )
 
         expected = {
@@ -438,16 +487,14 @@ class TestIntermediateDir:
         ).read_bytes()
 
     def test_skip_quantization_omits_palette_preview(self, tmp_path: Path):
-        """With quantization skipped (num_colors=0) there is no palette to
+        """With the dominant method (the default) there is no palette to
         preview, but the mesh overlays are still written."""
         arrays = _make_noisy_arrays(4)
         input_path = tmp_path / "anim.gif"
         _save_gif(arrays, input_path, [50] * 4)
         inter = tmp_path / "inter"
 
-        video.pixelate_video(
-            input_path, tmp_path / "out.gif", num_colors=0, intermediate_dir=inter
-        )
+        video.pixelate_video(input_path, tmp_path / "out.gif", intermediate_dir=inter)
 
         written = {p.name for p in inter.iterdir()}
         assert {"closed_edges.png", "lines.png", "mesh.png"} <= written
@@ -487,3 +534,41 @@ class TestVideoIo:
 
         samples = video_io.read_sample_frames(input_path, 99)
         assert len(samples) == 3
+
+
+class TestColorMergeConsistency:
+    def test_merged_palette_identical_across_frames(self, tmp_path: Path):
+        """In skip-quantization mode the fitted ColorMerger gives every frame
+        the same output palette for logically identical colors (no flicker)."""
+        rng = np.random.default_rng(7)
+        # Static background of near-identical greens (speckle source) with a
+        # moving red square, so frames differ but share the same true colors.
+        frames = []
+        for k in range(4):
+            logical = np.tile(
+                np.array(BACKGROUND, dtype=np.uint8), (LOGICAL_SIZE, LOGICAL_SIZE, 1)
+            )
+            logical[3:7, 2 + k : 6 + k] = (200, 30, 30)
+            frames.append(_noisy_upscale(logical, rng))
+        input_path = tmp_path / "anim.gif"
+        _save_gif(frames, input_path, [50] * 4)
+
+        output_path = video.pixelate_video(input_path, tmp_path / "out.gif")
+
+        with Image.open(output_path) as result:
+            palettes = []
+            for frame_idx in range(result.n_frames):
+                result.seek(frame_idx)
+                rgba = np.asarray(result.convert("RGBA"))
+                opaque = rgba[rgba[..., 3] >= 128][:, :3]
+                palettes.append({tuple(c) for c in opaque})
+        shared = set.intersection(*palettes)
+        # The static background must map to one shared color in every frame.
+        union = set.union(*palettes)
+        background_like = {
+            c
+            for c in union
+            if abs(c[0] - 40) < 30 and c[1] > 150 and abs(c[2] - 60) < 30
+        }
+        assert len(background_like) == 1
+        assert background_like <= shared

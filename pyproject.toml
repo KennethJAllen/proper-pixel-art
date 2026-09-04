@@ -1,10 +1,10 @@
 [project]
 name = "proper-pixel-art"
-version = "1.7.2"
+version = "2.0.0"
 description = "Converts pixel-art-style images such as those from generative models or low-quality sprite web uploads to true resolution usable assets."
 authors = [{name = "Kenneth Allen"}]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 keywords = [
     "pixel-art",
@@ -20,7 +20,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "Topic :: Multimedia :: Graphics :: Graphics Conversion",
     "Topic :: Games/Entertainment",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -32,6 +31,7 @@ dependencies = [
     "opencv-python-headless>=4.11.0.86",
     "pillow>=12.1.0",
     "pyyaml>=6.0",
+    "scipy>=1.13",
     "tqdm>=4.66",
 ]
 
@@ -42,15 +42,9 @@ Issues = "https://github.com/KennethJAllen/proper-pixel-art/issues"
 
 [project.optional-dependencies]
 web = ["gradio>=5.0.0"]
-scripts = [
-    "openai>=1.54.0",
-    "python-dotenv>=1.0.0",
-]
 
 [project.scripts]
 ppa = "proper_pixel_art.cli:main"
-ppa-video = "proper_pixel_art.cli_video:main"
-ppa-web = "proper_pixel_art.web:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -61,6 +55,11 @@ dev = [
     "ipykernel>=6.29.5",
     "pytest>=8.4.2",
     "ruff>=0.14.4",
+]
+# For the repo-only scripts/ tools (not shipped in the wheel).
+scripts = [
+    "openai>=1.54.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
