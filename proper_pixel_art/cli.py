@@ -2,10 +2,11 @@
 
 import argparse
 import sys
+from collections.abc import Sequence
 from importlib.metadata import version
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from proper_pixel_art import pixelate, utils
 from proper_pixel_art.config import PixelateConfig
@@ -16,8 +17,8 @@ from proper_pixel_art.diagnostics import diagnose_image, format_diagnostics
 # preserves animation and handles single-frame GIFs correctly.
 VIDEO_SUFFIXES = frozenset({".mp4", ".gif", ".webm", ".mov", ".avi", ".mkv", ".m4v"})
 
-# Effective defaults for flags that parse as None so that "not provided" is
-# observable (--diagnose warns about explicitly passed flags it ignores).
+# Effective defaults for flags that parse as None, so an unset flag can fall
+# back to the config file before reaching these.
 DEFAULT_OUT_PATH = Path(".")
 DEFAULT_SAMPLE_FRAMES = 8
 
@@ -193,8 +194,10 @@ def resolve_input_path(
     return args
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments (defaulting to ``sys.argv``)."""
+    argv = sys.argv[1:] if argv is None else list(argv)
+
     parser = argparse.ArgumentParser(
         description=(
             "Generate true-resolution pixel art from a source image, "
@@ -252,8 +255,8 @@ def parse_args() -> argparse.Namespace:
     add_pixelation_args(parser)
     add_video_args(parser)
 
-    args = parser.parse_args()
-    args.diagnose_ignored_flags = collect_ignored_diagnose_flags(parser, args)
+    args = parser.parse_args(argv)
+    args.diagnose_ignored_flags = collect_ignored_diagnose_flags(parser, argv)
 
     return resolve_input_path(parser, args)
 
@@ -277,29 +280,54 @@ def resolve_output_path(
     )
 
 
-# The only flags --diagnose acts on; every other flag defaults to None so a
-# non-None value proves the user passed it and earns a warning below.
+# The only flags --diagnose acts on; every other flag the user supplies
+# earns a warning below.
 _DIAGNOSE_USED_DESTS = frozenset({"input_path_flag", "diagnose"})
+
+
+def collect_supplied_dests(
+    parser: argparse.ArgumentParser,
+    argv: Sequence[str],
+) -> frozenset[str]:
+    """Return the dests ``argv`` actually supplies a value for.
+
+    Re-parses with every default replaced by ``argparse.SUPPRESS``, so a
+    dest reaches the namespace only when the user named its flag. Comparing
+    parsed values against their defaults would instead need every ignorable
+    flag to declare ``default=None``, which silently stops covering any flag
+    added with an ordinary default such as ``store_true``'s ``False``.
+    """
+    defaults = [action.default for action in parser._actions]
+
+    try:
+        for action in parser._actions:
+            action.default = argparse.SUPPRESS
+
+        # argv already parsed cleanly once, so this cannot fail or exit.
+        return frozenset(vars(parser.parse_args(argv)))
+    finally:
+        for action, default in zip(parser._actions, defaults, strict=True):
+            action.default = default
 
 
 def collect_ignored_diagnose_flags(
     parser: argparse.ArgumentParser,
-    args: argparse.Namespace,
+    argv: Sequence[str],
 ) -> list[str]:
     """List user-facing names of explicitly passed flags --diagnose ignores.
 
     Derived from the parser's registered actions rather than a hand-written
-    table, so new flags are covered automatically. Positionals and the
-    built-in help/version actions (which default to SUPPRESS, not None) fall
-    out of the filters naturally.
+    table, so new flags are covered automatically. Positionals fall out of
+    the ``option_strings`` filter.
     """
+    supplied = collect_supplied_dests(parser, argv)
+
     return [
         "/".join(action.option_strings)
         for action in parser._actions
         if action.option_strings
-        and action.default is None
+        and action.dest in supplied
         and action.dest not in _DIAGNOSE_USED_DESTS
-        and getattr(args, action.dest) is not None
     ]
 
 
@@ -310,9 +338,26 @@ def warn_ignored_diagnose_flags(args: argparse.Namespace) -> None:
         print(f"Warning: --diagnose ignores: {ignored}", file=sys.stderr)
 
 
+def open_input_image(input_path: Path) -> Image.Image:
+    """Open an input image, reporting an undecodable file as a CLI error.
+
+    main() already distinguishes missing, unreadable, and non-file inputs;
+    this covers the remaining case of a readable file that is not an image,
+    which would otherwise escape as a bare PIL traceback.
+    """
+    try:
+        return Image.open(input_path)
+    except UnidentifiedImageError:
+        raise SystemExit(f"Input file is not a supported image: {input_path}") from None
+    except OSError as error:
+        raise SystemExit(
+            f"Cannot read input file: {input_path} ({error.strerror or error})"
+        ) from None
+
+
 def run_diagnostics(input_path: Path) -> None:
     """Analyze a still image and print the diagnostic report."""
-    with Image.open(input_path) as image:
+    with open_input_image(input_path) as image:
         diagnostics = diagnose_image(image)
 
     print(format_diagnostics(diagnostics))
@@ -389,7 +434,7 @@ def main() -> None:
         )
         return
 
-    with Image.open(input_path) as image:
+    with open_input_image(input_path) as image:
         pixelated = pixelate(
             image,
             config=config,

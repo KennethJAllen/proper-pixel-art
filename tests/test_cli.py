@@ -214,13 +214,76 @@ def test_main_diagnose_warns_on_ignored_output_flag(
     assert not out_path.exists()
 
 
-def test_main_reports_missing_vs_unreadable_input(
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["-c", "8"], "-c/--colors"),
+        (["-s", "2"], "-s/--scale-result"),
+        (["-t"], "-t/--transparent"),
+        (["-w", "4"], "-w/--pixel-width"),
+        (["-u", "2"], "-u/--initial-upscale"),
+        (["-f", "gif"], "-f/--format"),
+        (["-n", "4"], "-n/--sample-frames"),
+        (["--config", "cfg.yaml"], "--config"),
+        (["--intermediate-dir", "steps"], "--intermediate-dir"),
+    ],
+)
+def test_main_diagnose_warns_on_every_ignored_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    assets: Path,
+    capsys: pytest.CaptureFixture,
+    argv: list[str],
+    expected: str,
+) -> None:
+    """Every flag --diagnose does not act on is named in the warning."""
+    input_path = assets / "anchor" / "anchor.png"
+
+    run_cli(monkeypatch, str(input_path), "--diagnose", *argv)
+
+    assert expected in capsys.readouterr().err
+
+
+def test_collect_ignored_diagnose_flags_ignores_declared_defaults() -> None:
+    """Detection is by what argv supplies, not by comparing against defaults.
+
+    Guards the flags declared the ordinary argparse way -- ``store_true``
+    with ``default=False``, or any concrete default -- which a
+    value-versus-default comparison would silently drop from the warning.
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--diagnose", action="store_true")
+    parser.add_argument("--flag", action="store_true", default=False)
+    parser.add_argument("--valued", type=int, default=8)
+
+    assert cli.collect_ignored_diagnose_flags(parser, ["--diagnose"]) == []
+    assert cli.collect_ignored_diagnose_flags(parser, ["--diagnose", "--flag"]) == [
+        "--flag"
+    ]
+    # Supplying exactly the default value still counts as supplying it.
+    assert cli.collect_ignored_diagnose_flags(
+        parser, ["--diagnose", "--valued", "8"]
+    ) == ["--valued"]
+
+    # The parser is left as it was found.
+    assert parser.get_default("valued") == 8
+    assert parser.get_default("flag") is False
+
+
+def test_main_reports_missing_input(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A permission-blocked input is reported as unreadable, not missing."""
+    """A path that does not exist is reported as missing."""
     with pytest.raises(SystemExit, match="does not exist"):
         run_cli(monkeypatch, str(tmp_path / "missing.png"))
 
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid"), reason="requires POSIX permission semantics"
+)
+def test_main_reports_unreadable_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A permission-blocked input is reported as unreadable, not missing."""
     if os.geteuid() == 0:
         pytest.skip("permissions are not enforced for root")
 
@@ -231,10 +294,31 @@ def test_main_reports_missing_vs_unreadable_input(
     blocked_dir.chmod(0o000)
 
     try:
+        # chmod is advisory on some mounts (WSL DrvFs, CIFS) and is bypassed
+        # by CAP_DAC_OVERRIDE, so confirm the block took before asserting.
+        try:
+            input_path.stat()
+        except OSError:
+            pass
+        else:
+            pytest.skip("filesystem does not enforce directory permissions")
+
         with pytest.raises(SystemExit, match="Cannot access input file"):
             run_cli(monkeypatch, str(input_path))
     finally:
         blocked_dir.chmod(0o755)
+
+
+def test_main_reports_non_image_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A readable file PIL cannot decode is a CLI error, not a traceback."""
+    input_path = tmp_path / "notes.txt"
+    input_path.write_text("not an image")
+
+    for extra in ([], ["--diagnose"]):
+        with pytest.raises(SystemExit, match="not a supported image"):
+            run_cli(monkeypatch, str(input_path), *extra)
 
 
 def test_ppa_video_alias_deprecated(

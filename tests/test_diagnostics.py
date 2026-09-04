@@ -87,6 +87,56 @@ def test_noise_moderate_for_grainy_pixel_art() -> None:
     assert diagnose_image(_rgb_image(noisy)).noise_level != "low"
 
 
+@pytest.mark.parametrize("coverage", [1.0, 0.36, 0.25, 0.04])
+def test_noise_moderate_for_localized_grain(coverage: float) -> None:
+    """Grain confined to part of an opaque frame reads the same at every
+    coverage. Averaging over the whole image instead dilutes a small patch
+    below the band, which is the common AI-generated layout: a grainy
+    subject on a flat, opaque background."""
+    rng = np.random.default_rng(7)
+    canvas = np.full((256, 256), 128.0)
+    side = int(round(256 * np.sqrt(coverage)))
+    canvas[:side, :side] = np.clip(
+        canvas[:side, :side] + rng.normal(0, 20, (side, side)), 0, 255
+    )
+
+    image = _rgb_image(np.repeat(canvas[:, :, None], 3, axis=2))
+
+    assert diagnose_image(image).noise_level == "moderate"
+
+
+@pytest.mark.parametrize("coverage", [1.0, 0.10])
+def test_noise_high_for_localized_uniform_noise(coverage: float) -> None:
+    """A uniform-noise patch reads high even at a tenth of the frame."""
+    rng = np.random.default_rng(3)
+    canvas = np.full((256, 256, 3), 128, dtype=np.uint8)
+    side = int(round(256 * np.sqrt(coverage)))
+    canvas[:side, :side] = rng.integers(0, 256, (side, side, 3), dtype=np.uint8)
+
+    assert diagnose_image(_rgb_image(canvas)).noise_level == "high"
+
+
+def test_noise_detects_grain_along_an_edge() -> None:
+    """A grain band too thin for a whole tile is padded into one rather than
+    truncated away by the regional tiling."""
+    rng = np.random.default_rng(9)
+    canvas = np.full((200, 200), 128.0)
+    canvas[160:, :] = np.clip(canvas[160:, :] + rng.normal(0, 20, (40, 200)), 0, 255)
+
+    image = _rgb_image(np.repeat(canvas[:, :, None], 3, axis=2))
+
+    assert diagnose_image(image).noise_level == "moderate"
+
+
+def test_noise_high_for_image_smaller_than_a_region() -> None:
+    """Images too small to hold a scoring tile fall back to whole-image
+    statistics rather than reporting no noise."""
+    rng = np.random.default_rng(11)
+    image = _rgb_image(rng.integers(0, 256, (20, 20, 3), dtype=np.uint8))
+
+    assert diagnose_image(image).noise_level == "high"
+
+
 def test_transparent_pixels_excluded() -> None:
     """A fully transparent image yields no colors, no noise, and no advice."""
     rng = np.random.default_rng(2)
