@@ -5,6 +5,8 @@ and argument errors. Visual quality is validated separately by eye -- see
 CONTRIBUTING.md -> Visual validation.
 """
 
+import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -116,7 +118,9 @@ def test_parse_args_positional_input(monkeypatch: pytest.MonkeyPatch) -> None:
     assert args.intermediate_dir is None
     assert args.transparent_background is None
     assert args.output_format is None
-    assert args.sample_frames == 8
+    assert args.sample_frames is None
+    assert args.out_path is None
+    assert args.diagnose is False
 
 
 def test_parse_args_input_flag(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,6 +141,100 @@ def test_parse_args_video_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     args = cli.parse_args()
     assert args.output_format == "mp4"
     assert args.sample_frames == 4
+
+
+def test_parse_args_diagnose_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["ppa", "in.png", "--diagnose"])
+    assert cli.parse_args().diagnose is True
+
+
+def test_add_pixelation_args_excludes_diagnose() -> None:
+    """--diagnose belongs to `ppa` only, not the shared pixelation helper that
+    scripts/ppa_gen.py reuses."""
+    parser = cli.add_pixelation_args(argparse.ArgumentParser())
+
+    assert "--diagnose" not in parser.format_help()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--diagnose"])
+
+
+def test_main_diagnose_prints_report(
+    monkeypatch: pytest.MonkeyPatch,
+    assets: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """--diagnose reports on the image instead of writing an output file."""
+    input_path = assets / "anchor" / "anchor.png"
+
+    run_cli(monkeypatch, str(input_path), "--diagnose")
+
+    stdout = capsys.readouterr().out
+    assert "Image diagnosis" in stdout
+    assert "Size: 500x500" in stdout
+    assert "Noise level: low" in stdout
+
+
+def test_main_diagnose_rejects_video(
+    monkeypatch: pytest.MonkeyPatch, gif_path: Path
+) -> None:
+    with pytest.raises(SystemExit, match="still images"):
+        run_cli(monkeypatch, str(gif_path), "--diagnose")
+
+
+def test_main_diagnose_warns_on_ignored_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    assets: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """Pixelation flags are inert under --diagnose, so they get called out."""
+    input_path = assets / "anchor" / "anchor.png"
+
+    run_cli(monkeypatch, str(input_path), "--diagnose", "-c", "8")
+    stderr = capsys.readouterr().err
+    assert "--diagnose ignores" in stderr
+    assert "-c/--colors" in stderr
+
+    run_cli(monkeypatch, str(input_path), "--diagnose")
+    assert capsys.readouterr().err == ""
+
+
+def test_main_diagnose_warns_on_ignored_output_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    assets: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """-o is inert under --diagnose too: the report only goes to stdout."""
+    input_path = assets / "anchor" / "anchor.png"
+    out_path = tmp_path / "report.txt"
+
+    run_cli(monkeypatch, str(input_path), "--diagnose", "-o", str(out_path))
+
+    assert "-o/--output" in capsys.readouterr().err
+    assert not out_path.exists()
+
+
+def test_main_reports_missing_vs_unreadable_input(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A permission-blocked input is reported as unreadable, not missing."""
+    with pytest.raises(SystemExit, match="does not exist"):
+        run_cli(monkeypatch, str(tmp_path / "missing.png"))
+
+    if os.geteuid() == 0:
+        pytest.skip("permissions are not enforced for root")
+
+    blocked_dir = tmp_path / "blocked"
+    blocked_dir.mkdir()
+    input_path = blocked_dir / "sprite.png"
+    input_path.touch()
+    blocked_dir.chmod(0o000)
+
+    try:
+        with pytest.raises(SystemExit, match="Cannot access input file"):
+            run_cli(monkeypatch, str(input_path))
+    finally:
+        blocked_dir.chmod(0o755)
 
 
 def test_ppa_video_alias_deprecated(
