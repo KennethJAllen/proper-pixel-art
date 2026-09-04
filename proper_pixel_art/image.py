@@ -156,16 +156,32 @@ def downsample_binned(
         idx1 = bins1[:, 0] * num_bins**2 + bins1[:, 1] * num_bins + bins1[:, 2]
         idx2 = bins2[:, 0] * num_bins**2 + bins2[:, 1] * num_bins + bins2[:, 2]
 
-        counts1 = np.bincount(
-            cid_a * num_bin_combos + idx1,
-            minlength=cell_map.n_cells * num_bin_combos,
-        ).reshape(cell_map.n_cells, num_bin_combos)
-        counts2 = np.bincount(
-            cid_a * num_bin_combos + idx2,
-            minlength=cell_map.n_cells * num_bin_combos,
-        ).reshape(cell_map.n_cells, num_bin_combos)
-        dominant1, max1 = counts1.argmax(axis=1), counts1.max(axis=1)
-        dominant2, max2 = counts2.argmax(axis=1), counts2.max(axis=1)
+        def dominant_bins(indices: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            """Return each cell's dominant sparse RGB-bin index and count.
+
+            A dense ``n_cells x num_bin_combos`` table becomes enormous for
+            small bin sizes (bin_size=1 has 256**3 possible bins), even though
+            only one entry per input pixel can be occupied.
+            """
+            keys, counts = np.unique(
+                cid_a * num_bin_combos + indices, return_counts=True
+            )
+            cells = keys // num_bin_combos
+            bins = keys % num_bin_combos
+            # Sort by cell, descending count, then ascending bin. Taking the
+            # first entry per cell matches dense argmax's lowest-index tie.
+            order = np.lexsort((bins, -counts, cells))
+            sorted_cells = cells[order]
+            first = np.r_[True, sorted_cells[1:] != sorted_cells[:-1]]
+            chosen = order[first]
+            dominant = np.zeros(cell_map.n_cells, dtype=np.int64)
+            max_counts = np.zeros(cell_map.n_cells, dtype=np.int64)
+            dominant[cells[chosen]] = bins[chosen]
+            max_counts[cells[chosen]] = counts[chosen]
+            return dominant, max_counts
+
+        dominant1, max1 = dominant_bins(idx1)
+        dominant2, max2 = dominant_bins(idx2)
         use_grid1 = max1 >= max2
 
         in_dominant_bin = np.where(

@@ -24,6 +24,25 @@ _CHANGELOG_HINT = (
     "see CHANGELOG.md for the key changes."
 )
 
+# Removed schema keys with direct replacements. These remain errors—the v2
+# schema has one canonical spelling—but give users an actionable migration
+# instead of making them search the changelog for a familiar key.
+_MOVED_KEYS = {
+    "PixelateConfig": {
+        "num_colors": "colors.palette.num_colors (and set colors.method: palette)",
+    },
+    "MeshConfig": {
+        "width_selection_tolerance": "mesh.width_keep_tolerance",
+        "width_replacement_tolerance": "mesh.width_replace_tolerance",
+    },
+    "ColorConfig": {
+        "num_colors": "colors.palette.num_colors (and set colors.method: palette)",
+        "quantize_method": "colors.palette.quantize_method",
+        "bin_size": "colors.dominant.bin_size",
+        "output_color_merge_distance": "colors.dominant.merge_distance",
+    },
+}
+
 
 @dataclass
 class HoughConfig:
@@ -312,8 +331,16 @@ def _build(dc_type, data: dict, **nested):
     valid = {f.name for f in fields(dc_type)}
     unknown = set(data) - valid
     if unknown:
+        moved = _MOVED_KEYS.get(dc_type.__name__, {})
+        migrations = [
+            f"{key!r} was replaced by {moved[key]}"
+            for key in sorted(unknown)
+            if key in moved
+        ]
+        migration_hint = f" {'; '.join(migrations)}." if migrations else ""
         raise ValueError(
             f"Unknown config key(s) for {dc_type.__name__}: {sorted(unknown)}."
+            + migration_hint
             + _CHANGELOG_HINT
         )
     overrides = dict(nested)

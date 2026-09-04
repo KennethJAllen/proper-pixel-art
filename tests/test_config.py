@@ -135,6 +135,34 @@ def test_old_flat_keys_raise_with_changelog_hint():
             PixelateConfig.from_dict(data)
 
 
+@pytest.mark.parametrize(
+    ("data", "replacement"),
+    [
+        ({"num_colors": 8}, "colors.palette.num_colors"),
+        (
+            {"colors": {"quantize_method": "FASTOCTREE"}},
+            "colors.palette.quantize_method",
+        ),
+        ({"colors": {"bin_size": 30}}, "colors.dominant.bin_size"),
+        (
+            {"colors": {"output_color_merge_distance": 6}},
+            "colors.dominant.merge_distance",
+        ),
+        (
+            {"mesh": {"width_selection_tolerance": 1.0}},
+            "mesh.width_keep_tolerance",
+        ),
+        (
+            {"mesh": {"width_replacement_tolerance": 0.2}},
+            "mesh.width_replace_tolerance",
+        ),
+    ],
+)
+def test_moved_keys_name_replacement(data, replacement):
+    with pytest.raises(ValueError, match=replacement.replace(".", r"\.")):
+        PixelateConfig.from_dict(data)
+
+
 def test_version_key_accepted():
     """An explicit version: 2 is accepted and stripped."""
     assert PixelateConfig.from_dict({"version": 2}) == PixelateConfig()

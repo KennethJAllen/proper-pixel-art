@@ -20,7 +20,8 @@ truth, with the sentinel shorthands and pre-1.8 compatibility layers removed.
   `config.video.output_format` (default `gif`).
 - The module `proper_pixel_art.pixelate` was renamed to
   `proper_pixel_art.image`, so the `pixelate` function no longer shadows its
-  own module. Import from the package root:
+  own module. The old module path remains as a deprecated import-only shim;
+  import from the package root:
   `from proper_pixel_art import pixelate, pixelate_video, PixelateConfig`.
 - The package root now exports the config dataclasses, `PixelateResult`, and
   `__version__`; `pixelate_video` is imported lazily.

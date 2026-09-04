@@ -154,7 +154,9 @@ def dominant_rgb_by_binning(rgb_pixels: np.ndarray, bin_size: int) -> RGB:
     num_bins = 255 // bin_size + 1
 
     # Grid 1: standard binning (boundaries at 0, bin_size, 2*bin_size, ...)
-    bins1 = rgb_pixels // bin_size
+    # Widen before encoding three channels into one integer. With small valid
+    # bin sizes, multiplying uint8 bin coordinates would otherwise overflow.
+    bins1 = rgb_pixels.astype(np.int64) // bin_size
     indices1 = bins1[:, 0] * num_bins**2 + bins1[:, 1] * num_bins + bins1[:, 2]
     counts1 = np.bincount(indices1, minlength=num_bins**3)
     dominant1 = np.argmax(counts1)
