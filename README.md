@@ -244,9 +244,9 @@ For Python developers who want to integrate this tool into their own code.
 from PIL import Image
 from proper_pixel_art import pixelate
 
-image = Image.open('path/to/input.png')
+image = Image.open("path/to/input.png")
 result = pixelate(image, num_colors=16)
-result.save('path/to/output.png')
+result.save("path/to/output.png")
 ```
 
 Videos and GIFs have their own entry point:
@@ -254,7 +254,7 @@ Videos and GIFs have their own entry point:
 ```python
 from proper_pixel_art.video import pixelate_video
 
-pixelate_video('input.mp4', 'output.gif', num_colors=16)
+pixelate_video("input.mp4", "output.gif", num_colors=16)
 ```
 
 #### Parameters
@@ -277,8 +277,8 @@ from PIL import Image
 from proper_pixel_art import pixelate
 from proper_pixel_art.config import PixelateConfig
 
-config = PixelateConfig.from_yaml('config.yaml')
-result = pixelate(Image.open('input.png'), config=config)
+config = PixelateConfig.from_yaml("config.yaml")
+result = pixelate(Image.open("input.png"), config=config)
 ```
 
 From the CLI, pass `--config`. Flags given explicitly override values from the file:
