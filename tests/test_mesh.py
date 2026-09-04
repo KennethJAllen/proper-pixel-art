@@ -20,6 +20,46 @@ def test_mesh():
     assert pixel_width >= 1
 
 
+def test_explicit_pixel_width_is_scaled_for_upscaled_mesh(monkeypatch):
+    """Configured widths use source-image coordinates, unlike mesh coordinates."""
+    widths = []
+
+    def fake_compute_mesh(img, **kwargs):
+        widths.append(kwargs["pixel_width"])
+        lines = [0, 5, 10, img.width - 1]
+        return ((lines, lines), kwargs["pixel_width"])
+
+    monkeypatch.setattr(mesh, "compute_mesh", fake_compute_mesh)
+
+    _, factor, used_width = mesh.compute_mesh_with_scaling(
+        Image.new("RGBA", (16, 16)), upscale_factor=3, pixel_width=4
+    )
+
+    assert widths == [12]
+    assert factor == 3
+    assert used_width == 12
+
+
+def test_explicit_pixel_width_uses_source_scale_on_fallback(monkeypatch):
+    """The scale-1 fallback must not retain the attempted upscale conversion."""
+    widths = []
+
+    def fake_compute_mesh(img, **kwargs):
+        widths.append(kwargs["pixel_width"])
+        mesh_lines = ([0, img.width - 1], [0, img.height - 1])
+        return mesh_lines, kwargs["pixel_width"]
+
+    monkeypatch.setattr(mesh, "compute_mesh", fake_compute_mesh)
+
+    _, factor, used_width = mesh.compute_mesh_with_scaling(
+        Image.new("RGBA", (16, 16)), upscale_factor=3, pixel_width=4
+    )
+
+    assert widths == [12, 4]
+    assert factor == 1
+    assert used_width == 4
+
+
 def _grid_image(boundaries: list[int], size: int, axis: int) -> np.ndarray:
     """Grayscale image of hard-edged stripes changing value at ``boundaries``."""
     values = np.zeros(size, dtype=np.uint8)

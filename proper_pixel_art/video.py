@@ -143,9 +143,12 @@ def compute_video_mesh(
         if intermediate_dir is not None
         else None
     )
+    upscaled_pixel_width = (
+        pixel_width * upscale_factor if pixel_width is not None else None
+    )
     mesh_lines, _ = mesh.compute_mesh_from_edges(
         aggregated,
-        pixel_width=pixel_width,
+        pixel_width=upscaled_pixel_width,
         intermediate_dir=intermediate_dir,
         original_img=representative,
         mesh_config=mesh_config,

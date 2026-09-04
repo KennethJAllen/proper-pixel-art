@@ -36,6 +36,32 @@ PALETTE = np.array(
 BACKGROUND = (40, 180, 60)
 
 
+def test_video_explicit_pixel_width_is_scaled_for_upscaled_mesh(monkeypatch):
+    """Video mesh detection interprets configured widths in source coordinates."""
+    captured = {}
+    grey = np.zeros((12, 12), dtype=np.uint8)
+
+    monkeypatch.setattr(video, "_scaled_greys", lambda *args, **kwargs: [grey])
+    monkeypatch.setattr(
+        video, "aggregate_edge_maps", lambda *args, **kwargs: np.zeros_like(grey)
+    )
+
+    def fake_compute_mesh_from_edges(*args, **kwargs):
+        captured["pixel_width"] = kwargs["pixel_width"]
+        return ([0, 4, 8, 11], [0, 4, 8, 11]), kwargs["pixel_width"]
+
+    monkeypatch.setattr(
+        video.mesh, "compute_mesh_from_edges", fake_compute_mesh_from_edges
+    )
+
+    _, factor = video.compute_video_mesh(
+        [Image.new("RGBA", (6, 6))], upscale_factor=2, pixel_width=3
+    )
+
+    assert captured["pixel_width"] == 6
+    assert factor == 2
+
+
 def _logical_frames(
     n_frames: int, rng: np.random.Generator, uniform_border: bool = False
 ) -> list[np.ndarray]:

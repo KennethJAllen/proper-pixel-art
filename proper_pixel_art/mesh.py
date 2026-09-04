@@ -840,10 +840,13 @@ def compute_mesh_with_scaling(
     width used (in the returned mesh's upscaled coordinates).
     """
     upscaled_img = utils.scale_img(img, upscale_factor)
+    upscaled_pixel_width = (
+        pixel_width * upscale_factor if pixel_width is not None else None
+    )
     mesh_lines, used_width = compute_mesh(
         upscaled_img,
         intermediate_dir=intermediate_dir,
-        pixel_width=pixel_width,
+        pixel_width=upscaled_pixel_width,
         mesh_config=mesh_config,
     )
     if not is_trivial_mesh(mesh_lines):
