@@ -75,3 +75,4 @@ lint.ignore = ["E501"]  # line length is handled by ruff format
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = ["mesh_benchmark: opt-in synthetic mesh quality benchmark"]

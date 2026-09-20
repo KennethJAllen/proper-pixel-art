@@ -226,7 +226,19 @@ def test_estimate_axis_width_falls_back_to_profile():
     """Too few gaps -> profile peak estimate (autocorrelation only if no peak)."""
     lines = [0, 50]
     assert mesh.estimate_axis_width(lines, 7, 5, MeshConfig()) == 7
+    assert mesh.estimate_axis_width(lines, 7, None, MeshConfig()) == 7
     assert mesh.estimate_axis_width(lines, None, 5, MeshConfig()) == 5
+
+
+@pytest.mark.parametrize("name, expected_width", [("mountain", 13), ("pumpkin", 36)])
+def test_textured_assets_keep_periodic_width(name, expected_width):
+    """Preserve the established widths of the textured assets at the 2x scale."""
+    path = Path(__file__).resolve().parents[1] / "assets" / name / f"{name}.png"
+    with Image.open(path) as img:
+        _, scale, width = mesh.compute_mesh_with_scaling(img.convert("RGBA"))
+
+    assert scale == 2
+    assert width == expected_width
 
 
 def test_estimate_axis_width_none_when_no_evidence():
@@ -363,15 +375,47 @@ def test_select_pixel_width_context_gated_by_debug_flag():
     size = cells * width
     mesh_initial = ([0, size - 1], [0, size - 1])
 
-    _, plain = mesh.select_pixel_width(grey, mesh_initial, None, [width], MeshConfig())
-    assert set(plain) == {width}  # no neighbors when debug is off
+    candidates = [width, 2 * width]
+    _, plain = mesh.select_pixel_width(
+        grey, mesh_initial, None, candidates, MeshConfig()
+    )
+    assert set(plain) == set(candidates)  # no neighbors when debug is off
 
     _, expanded = mesh.select_pixel_width(
-        grey, mesh_initial, None, [width], MeshConfig(), debug_context=True
+        grey, mesh_initial, None, candidates, MeshConfig(), debug_context=True
     )
     assert set(plain) <= set(expanded)
     # +-1, double and half neighbors are added purely for the debug output.
     assert {width - 1, width + 1, 2 * width, width // 2} <= set(expanded)
+
+
+def test_select_pixel_width_skips_scoring_without_eligible_alternative(monkeypatch):
+    """Duplicate estimates and out-of-range widths cannot change the decision."""
+    grey = _checker_grey(8, 10)
+    borders = [0, grey.shape[0] - 1]
+    monkeypatch.setattr(
+        mesh,
+        "score_mesh",
+        lambda *_args: pytest.fail("no alternative width needs scoring"),
+    )
+
+    chosen, scores = mesh.select_pixel_width(
+        grey, (borders, borders), None, [10, 10, 1, 80]
+    )
+
+    assert chosen == 10
+    assert scores == {}
+
+
+def test_select_pixel_width_scores_alternative_when_estimate_is_ineligible():
+    """A sole eligible candidate still competes with an out-of-range estimate."""
+    grey = _checker_grey(8, 10)
+    borders = [0, grey.shape[0] - 1]
+
+    chosen, scores = mesh.select_pixel_width(grey, (borders, borders), None, [80, 10])
+
+    assert chosen == 10
+    assert set(scores) == {10}
 
 
 def test_width_scores_debug_output(tmp_path):

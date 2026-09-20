@@ -589,7 +589,9 @@ def select_pixel_width(
     Only the estimator-backed candidates affect the decision. When
     ``debug_context`` is set, each candidate's ``+-1/double/half`` neighborhood
     is additionally scored purely to enrich the returned scores for the debug
-    output; those neighbors never change the chosen width.
+    output; those neighbors never change the chosen width. Without debug
+    context, scoring is skipped if no eligible alternative can change the
+    estimate.
 
     Returns the chosen width and the scores of all widths evaluated.
     """
@@ -598,6 +600,8 @@ def select_pixel_width(
     max_width = min(height, width) // 2
     eligible = sorted(w for w in set(candidates) if 2 <= w <= max_width)
     if not eligible:
+        return candidates[0], {}
+    if not debug_context and not any(w != candidates[0] for w in eligible):
         return candidates[0], {}
     valid = eligible
     if debug_context:
