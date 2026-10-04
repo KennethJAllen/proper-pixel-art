@@ -281,10 +281,11 @@ def compute_mesh_with_scaling(
     Returns the mesh line coordinates and the scale factor used
     """
     upscaled_img = utils.scale_img(img, upscale_factor)
+    upscaled_pixel_width = None if pixel_width is None else pixel_width * upscale_factor
     mesh_lines = compute_mesh(
         upscaled_img,
         output_dir=output_dir,
-        pixel_width=pixel_width,
+        pixel_width=upscaled_pixel_width,
         mesh_config=mesh_config,
     )
     if not is_trivial_mesh(mesh_lines):
