@@ -4,6 +4,8 @@ import pytest
 
 from tests.cases import PIXELATE_PNG_CASES
 
+pytest_plugins = ["tests.mesh_benchmark_plugin"]
+
 
 @pytest.fixture(name="assets")
 def fixture_assets() -> Path:

@@ -1,9 +1,8 @@
-"""Tests for the ``ppa-web`` interface: CLI entry point, config assembly, and
-the input-type dispatch/preview routing in ``process``."""
+"""Tests for the ``ppa web`` interface: config assembly and the input-type
+dispatch/preview routing in ``process``. The `ppa web` CLI dispatch is covered
+in tests/test_cli.py."""
 
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import cv2
 import numpy as np
@@ -29,12 +28,14 @@ requires_gradio = pytest.mark.skipif(
 )
 
 
-def _config_kwargs(**overrides) -> dict:
-    """The full set of ``build_config`` keyword arguments, in signature order,
-    with the built-in defaults. Override any of them per test; the returned dict
-    is also fed positionally to ``process`` (dict order == parameter order)."""
-    kwargs = dict(
-        num_colors=16,
+def _config_values(**overrides) -> dict:
+    """The full set of ``build_config`` values, keyed and ordered by
+    ``web.CONFIG_KEYS``, with the built-in defaults. Override any of them per
+    test; the returned dict's values are also fed positionally to ``process``
+    (dict order == CONFIG_KEYS order)."""
+    values = dict(
+        color_method="palette",
+        colors=16,
         scale_result=1,
         initial_upscale_factor=2,
         pixel_width=0,
@@ -59,33 +60,9 @@ def _config_kwargs(**overrides) -> dict:
         thumbnail_w=160,
         thumbnail_h=160,
     )
-    kwargs.update(overrides)
-    return kwargs
-
-
-# --- ppa-web CLI ----------------------------------------------------------
-
-
-def test_web_main_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Check that web.main() launches with default server_name and server_port as None."""
-    monkeypatch.setattr(sys, "argv", ["ppa-web"])
-
-    mock_demo = MagicMock()
-    with patch("proper_pixel_art.web.create_demo", return_value=mock_demo):
-        web.main()
-
-    mock_demo.launch.assert_called_once_with(server_name=None, server_port=None)
-
-
-def test_web_main_custom_host_port(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Check that web.main() parses --host and --port and passes them to demo.launch."""
-    monkeypatch.setattr(sys, "argv", ["ppa-web", "--host", "0.0.0.0", "--port", "8080"])
-
-    mock_demo = MagicMock()
-    with patch("proper_pixel_art.web.create_demo", return_value=mock_demo):
-        web.main()
-
-    mock_demo.launch.assert_called_once_with(server_name="0.0.0.0", server_port=8080)
+    assert tuple(values) == web.CONFIG_KEYS
+    values.update(overrides)
+    return values
 
 
 # --- build_config (no gradio required) ------------------------------------
@@ -94,8 +71,8 @@ def test_web_main_custom_host_port(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_build_config_maps_all_ui_values() -> None:
     """Every control value lands in the right (possibly nested) config field."""
     cfg = web.build_config(
-        **_config_kwargs(
-            num_colors=16,
+        _config_values(
+            colors=16,
             scale_result=3,
             initial_upscale_factor=2,
             pixel_width=5,
@@ -113,7 +90,9 @@ def test_build_config_maps_all_ui_values() -> None:
         )
     )
 
-    assert (cfg.num_colors, cfg.scale_result, cfg.initial_upscale_factor) == (16, 3, 2)
+    assert (cfg.scale_result, cfg.initial_upscale_factor) == (3, 2)
+    assert cfg.colors.method == "palette"
+    assert cfg.colors.palette.num_colors == 16
     assert cfg.pixel_width == 5
     assert cfg.transparent_background is True
 
@@ -123,25 +102,37 @@ def test_build_config_maps_all_ui_values() -> None:
     assert cfg.mesh.hough.rho == 1.5
     assert cfg.mesh.hough.threshold == 120
 
-    assert cfg.colors.quantize_method == "MEDIANCUT"
-    assert cfg.colors.bin_size == 30
+    assert cfg.colors.palette.quantize_method == "MEDIANCUT"
+    assert cfg.colors.dominant.bin_size == 30
     assert cfg.colors.thumbnail_size == (120, 140)
+
+
+def test_build_config_dominant_method() -> None:
+    """The dominant method comes from the Radio; the palette sub-config keeps
+    its (valid) size for when the user switches back."""
+    cfg = web.build_config(_config_values(color_method="dominant"))
+    assert cfg.colors.method == "dominant"
+    assert cfg.colors.palette.num_colors >= 1
+
+
+def test_build_config_pixel_width_zero_means_auto() -> None:
+    """The slider's 0 maps to the config's None (auto-detect)."""
+    cfg = web.build_config(_config_values(pixel_width=0))
+    assert cfg.pixel_width is None
 
 
 def test_build_config_coerces_types() -> None:
     """Gradio hands back floats; integer-typed fields must end up as real ints
     (and list fields as tuples) so downstream indexing/quantization works."""
     cfg = web.build_config(
-        **_config_kwargs(
-            num_colors=16.0, canny_low=40.0, canny_high=210.0, bin_size=52.0
-        )
+        _config_values(colors=16.0, canny_low=40.0, canny_high=210.0, bin_size=52.0)
     )
-    assert isinstance(cfg.num_colors, int)
+    assert isinstance(cfg.colors.palette.num_colors, int)
     assert isinstance(cfg.mesh.canny_thresholds, tuple)
     assert all(isinstance(v, int) for v in cfg.mesh.canny_thresholds)
-    assert isinstance(cfg.colors.bin_size, int)
+    assert isinstance(cfg.colors.dominant.bin_size, int)
     # quantize_method resolves to a real PIL.Image.Quantize value without error.
-    assert cfg.colors.quantize is not None
+    assert cfg.colors.palette.quantize is not None
 
 
 # --- process() dispatch + preview routing (needs the web extra) -----------
@@ -153,8 +144,8 @@ PIXEL_WIDTH = 10
 PALETTE = np.array(
     [(40, 180, 60), (200, 30, 30), (30, 30, 200), (240, 220, 80)], dtype=np.uint8
 )
-# build_config args in positional order, for forwarding through process().
-CONFIG_ARGS = tuple(_config_kwargs().values())
+# build_config values in CONFIG_KEYS order, for forwarding through process().
+CONFIG_ARGS = tuple(_config_values().values())
 
 
 def _frames(n: int, seed: int = 0) -> list[np.ndarray]:
@@ -225,21 +216,26 @@ def test_process_gif_shows_animated_gif_preview(tmp_path: Path) -> None:
 
 
 @requires_gradio
-def test_process_mp4_shows_video_preview(tmp_path: Path) -> None:
+def test_process_mp4_auto_defaults_to_gif_preview(tmp_path: Path) -> None:
+    """On "Auto" the pipeline writes GIF regardless of the input format, so even
+    an mp4 upload lands on the GIF preview."""
     img, gif, video, status = _updates(_make_mp4(tmp_path))
+    assert gif["visible"] is True
+    assert img["visible"] is False and video["visible"] is False
+    assert gif["value"].startswith('<img src="data:image/gif;base64,')
+    assert "Done" in status["value"]
+
+
+@requires_gradio
+def test_process_format_override_routes_mp4_to_video(tmp_path: Path) -> None:
+    """Choosing format=mp4 opts out of the GIF default and gives the video
+    preview, which takes a real file path rather than inline HTML."""
+    img, gif, video, status = _updates(_make_mp4(tmp_path), output_format="mp4")
     assert video["visible"] is True
     assert img["visible"] is False and gif["visible"] is False
     out = Path(video["value"])
     assert out.suffix == ".mp4" and out.exists()
     assert "Done" in status["value"]
-
-
-@requires_gradio
-def test_process_format_override_routes_mp4_to_gif(tmp_path: Path) -> None:
-    """Choosing format=gif for a video input produces the GIF preview."""
-    img, gif, video, status = _updates(_make_mp4(tmp_path), output_format="gif")
-    assert gif["visible"] is True
-    assert img["visible"] is False and video["visible"] is False
 
 
 @requires_gradio

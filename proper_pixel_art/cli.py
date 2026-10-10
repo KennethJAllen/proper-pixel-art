@@ -1,6 +1,9 @@
 """Command line interface"""
 
 import argparse
+import logging
+import sys
+from dataclasses import replace
 from importlib.metadata import version
 from pathlib import Path
 
@@ -22,7 +25,7 @@ def add_pixelation_args(
     """Add common pixelation arguments to an argument parser.
 
     Every flag defaults to ``None`` (meaning "not provided"), so unset flags fall
-    back to the config / built-in defaults inside ``pixelate``.
+    back to the ``--config`` file / built-in defaults in ``config_from_args``.
 
     Args:
         parser: The argument parser to add arguments to
@@ -33,12 +36,27 @@ def add_pixelation_args(
     """
     pixel_group = parser.add_argument_group(group_name)
     pixel_group.add_argument(
+        "--color-method",
+        dest="color_method",
+        choices=["dominant", "palette"],
+        default=None,
+        help=(
+            "Color selection method: dominant preserves the original colors, "
+            "palette quantizes to a fixed palette (colors.method in the YAML "
+            "config; default: dominant)."
+        ),
+    )
+    pixel_group.add_argument(
         "-c",
         "--colors",
-        dest="num_colors",
+        dest="colors",
         type=int,
         default=None,
-        help="Number of colors to quantize the image to (1-256). Use 0 to skip quantization and preserve all colors.",
+        help=(
+            "Palette size (1-256) for the palette method; implies "
+            "--color-method palette (colors.palette.num_colors in the YAML "
+            "config)."
+        ),
     )
     pixel_group.add_argument(
         "-s",
@@ -46,15 +64,18 @@ def add_pixelation_args(
         dest="scale_result",
         type=int,
         default=None,
-        help="Width of the 'pixels' in the output image (1 = no scaling).",
+        help=(
+            "Upscale the result by this factor (each output pixel becomes an "
+            "NxN block; omit for no scaling)."
+        ),
     )
     pixel_group.add_argument(
         "-t",
         "--transparent",
         dest="transparent_background",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=None,
-        help="Produce a transparent background in the output if set.",
+        help="Produce a transparent background in the output.",
     )
     pixel_group.add_argument(
         "-w",
@@ -62,7 +83,7 @@ def add_pixelation_args(
         dest="pixel_width",
         type=int,
         default=None,
-        help="Width of the pixels in the input image. Use 0 (or omit) to determine it automatically.",
+        help="Width of the pixels in the input image. Omit to detect it automatically.",
     )
     pixel_group.add_argument(
         "-u",
@@ -79,9 +100,9 @@ def add_pixelation_args(
     return parser
 
 
-# Each dest added by add_pixelation_args matches a pixelate/pixelate_video kwarg.
+# Dests added by add_pixelation_args that map straight onto PixelateConfig
+# fields; color_method/colors are handled separately in config_from_args.
 PIXELATION_FIELDS = (
-    "num_colors",
     "scale_result",
     "transparent_background",
     "pixel_width",
@@ -99,7 +120,7 @@ def add_video_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         choices=["mp4", "gif"],
         default=None,
         help=(
-            "Output format (default: inferred from output extension, then input extension). "
+            "Output format (default: gif; a .mp4/.gif output path wins). "
             "Applies to video/GIF inputs only; ignored for images."
         ),
     )
@@ -108,7 +129,7 @@ def add_video_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--sample-frames",
         dest="sample_frames",
         type=int,
-        default=8,
+        default=None,
         help=(
             "Number of frames to sample for mesh detection (default: 8). "
             "Applies to video/GIF inputs only; ignored for images."
@@ -118,7 +139,7 @@ def add_video_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """Add the ``--config`` / ``--intermediate-dir`` arguments shared by both CLIs."""
+    """Add the ``--config`` / ``--intermediate-dir`` arguments."""
     parser.add_argument(
         "--config",
         dest="config",
@@ -136,34 +157,72 @@ def add_config_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
-def collect_pixelation_overrides(args: argparse.Namespace) -> dict:
-    """Collect the explicit pixelation flag values from parsed args.
+def config_from_args(
+    args: argparse.Namespace, base: PixelateConfig | None = None
+) -> PixelateConfig:
+    """Apply the explicitly-given CLI flags over ``base``.
 
-    Values are ``None`` when the flag wasn't provided, so they fall back to
-    the config / built-in defaults downstream.
+    Flags default to ``None`` when not provided, so unset ones keep the value
+    from ``base`` (a ``--config`` file, or the built-in defaults). This is the
+    one place where two configuration sources merge.
+
+    Raises ValueError when ``--colors`` is combined with
+    ``--color-method dominant`` (a palette size only applies to the palette
+    method).
     """
-    return {field: getattr(args, field) for field in PIXELATION_FIELDS}
+    cfg = base if base is not None else PixelateConfig()
+
+    explicit = {
+        field: value
+        for field in PIXELATION_FIELDS
+        if (value := getattr(args, field, None)) is not None
+    }
+    if explicit:
+        cfg = replace(cfg, **explicit)
+
+    color_method = getattr(args, "color_method", None)
+    num_colors = getattr(args, "colors", None)
+    if num_colors is not None:
+        if color_method == "dominant":
+            raise ValueError(
+                "--colors only applies to the palette method; drop it or use "
+                "--color-method palette."
+            )
+        cfg = replace(
+            cfg,
+            colors=replace(
+                cfg.colors,
+                method="palette",
+                palette=replace(cfg.colors.palette, num_colors=num_colors),
+            ),
+        )
+    elif color_method is not None:
+        cfg = replace(cfg, colors=replace(cfg.colors, method=color_method))
+
+    video_overrides = {}
+    if getattr(args, "output_format", None) is not None:
+        video_overrides["output_format"] = args.output_format
+    if getattr(args, "sample_frames", None) is not None:
+        video_overrides["num_sample_frames"] = args.sample_frames
+    if video_overrides:
+        cfg = replace(cfg, video=replace(cfg.video, **video_overrides))
+
+    return cfg
 
 
-def resolve_input_path(
-    parser: argparse.ArgumentParser, args: argparse.Namespace
-) -> argparse.Namespace:
-    """Resolve the positional input path against the ``-i``/``--input`` flag,
-    erroring out when neither is given."""
-    if args.input_path is None and args.input_path_flag is None:
-        parser.error("You must provide an input path (positional or with -i).")
-    args.input_path = (
-        args.input_path if args.input_path is not None else args.input_path_flag
-    )
-    return args
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_parser()
+    return parser.parse_args(argv)
 
 
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="ppa",
         description=(
             "Generate true-resolution pixel art from a source image, video, or GIF. "
-            "Video and GIF inputs are auto-detected and dispatched to the video pipeline."
-        )
+            "Video and GIF inputs are auto-detected and dispatched to the video "
+            "pipeline. Run 'ppa web' to launch the browser UI."
+        ),
     )
     parser.add_argument(
         "-V",
@@ -174,16 +233,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "input_path",
         type=Path,
-        nargs="?",
         help="Path to the source image, video, or GIF.",
-    )
-    parser.add_argument(
-        "-i",
-        "--input",
-        dest="input_path_flag",
-        metavar="INPUT_PATH",
-        type=Path,
-        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "-o",
@@ -195,14 +245,10 @@ def parse_args() -> argparse.Namespace:
     )
     add_config_args(parser)
 
-    # Flags default to None so unset ones fall back to --config; see pixelate().
+    # Flags default to None so unset ones fall back to --config.
     add_pixelation_args(parser)
     add_video_args(parser)
-
-    args = parser.parse_args()
-
-    # Either take the input as the first argument or use the -i flag
-    return resolve_input_path(parser, args)
+    return parser
 
 
 def resolve_output_path(
@@ -217,14 +263,51 @@ def resolve_output_path(
     return utils.build_output_path(out_path, input_path, suffix, ext="png")
 
 
-def main() -> None:
-    args = parse_args()
+def _web_main(argv: list[str]) -> None:
+    """Parse ``ppa web`` arguments and launch the Gradio UI."""
+    parser = argparse.ArgumentParser(
+        prog="ppa web", description="Web interface for Proper Pixel Art"
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Host address to bind the server to (e.g., 127.0.0.1 or 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to run the server on (e.g., 7860)",
+    )
+    args = parser.parse_args(argv)
+
+    # Deferred import: gradio is an optional dependency (the "web" extra).
+    from proper_pixel_art.web import create_demo
+
+    create_demo().launch(server_name=args.host, server_port=args.port)
+
+
+def main(argv: list[str] | None = None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+
+    # 'ppa web' launches the browser UI; everything else pixelates the
+    # positional input path. A file literally named "web" needs './web'.
+    if argv[:1] == ["web"]:
+        _web_main(argv[1:])
+        return
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    parser = build_parser()
+    args = parser.parse_args(argv)
     input_path = Path(args.input_path).expanduser()
 
-    config = PixelateConfig.from_yaml(args.config) if args.config else None
-
-    # None values fall back to config / built-in defaults inside pixelate.
-    overrides = collect_pixelation_overrides(args)
+    base = PixelateConfig.from_yaml(args.config) if args.config else None
+    try:
+        config = config_from_args(args, base)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     # Debug images go in a per-input subdirectory named after the input stem
     # (e.g. --intermediate-dir foo + wisp.mp4 -> foo/wisp/), mirroring the
@@ -242,18 +325,13 @@ def main() -> None:
         video.pixelate_video(
             input_path=input_path,
             output_path=Path(args.out_path),
-            output_format=args.output_format,
-            num_sample_frames=args.sample_frames,
-            intermediate_dir=intermediate_dir,
             config=config,
-            **overrides,
+            intermediate_dir=intermediate_dir,
         )
         return
 
     img = Image.open(input_path)
-    pixelated = pixelate(
-        img, config=config, intermediate_dir=intermediate_dir, **overrides
-    )
+    pixelated = pixelate(img, config=config, intermediate_dir=intermediate_dir).image
 
     width, height = pixelated.size
 

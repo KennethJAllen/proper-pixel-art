@@ -165,7 +165,7 @@ uv sync --extra web
 
 ```bash
 uvx --from "proper-pixel-art" ppa <input_path>  # CLI
-uvx --from "proper-pixel-art[web]" ppa-web      # Local web UI
+uvx --from "proper-pixel-art[web]" ppa web      # Local web UI
 ```
 
 ## Usage
@@ -181,14 +181,14 @@ Try it live in your browser, no install required, on [Hugging Face Spaces](https
 To run the same interface locally:
 
 ```bash
-ppa-web
+ppa web
 # Opens http://127.0.0.1:7860
 ```
 
 ### CLI
 
 ```bash
-ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
+ppa <input_path> -o <output_path> -c <palette_size> -s <scale> [-t]
 ```
 
 #### Options
@@ -197,13 +197,15 @@ ppa <input_path> -o <output_path> -c <num_colors> -s <result_scale> [-t]
 | --------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | INPUT (positional)                | Source image, video, or GIF in pixel-art style                                                            |
 | `-o`, `--output` `<path>`         | Output directory or file path for result. (default: '.')                                                  |
-| `-c`, `--colors` `<int>`          | Number of colors for output (1-256). Use 0 to skip quantization and preserve all colors. May need to try a few different values. (default 0) |
-| `-s`, `--scale-result` `<int>`    | Width/height of each "pixel" in the output. 1 = no scaling. (default: 1)                                  |
-| `-t`, `--transparent`             | Output with transparent background. (default: off)                                                        |
+| `--color-method` `<dominant\|palette>` | Color selection method: `dominant` preserves the original colors, `palette` quantizes to a fixed palette. (default: dominant) |
+| `-c`, `--colors` `<int>`          | Palette size (1-256) for the palette method; implies `--color-method palette`. May need to try a few different values. |
+| `-s`, `--scale-result` `<int>`    | Upscale the result by this factor (each output pixel becomes an NxN block). (default: no scaling)         |
+| `-t`, `--transparent`             | Output with transparent background; `--no-transparent` overrides a config's `true`. (default: off)        |
 | `-u`, `--initial-upscale` `<int>` | Initial image upscale factor. Increasing this may help detect pixel edges. (default 2)                    |
-| `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. Use 0 to determine it automatically. (default: 0)                 |
+| `-w`, `--pixel-width` `<int>`     | Width of the pixels in the input image. Omit to determine it automatically. (default: auto)               |
 | `--config` `<path>`               | YAML config file of pixelation parameters. Flags passed explicitly override values in the file. (default: none) |
 | `--intermediate-dir` `<path>`     | Directory to save images visualizing intermediate algorithm steps. Useful for development. (default: none) |
+| `-V`, `--version`                 | Print the installed version and exit.                                                                     |
 
 #### Example
 
@@ -218,7 +220,7 @@ ppa assets/blob/blob.png -c 16 -s 25
 Video and GIF inputs are recognized by extension, so the same `ppa` command pixelates animations too (e.g. from video models such as Sora). The result stays consistent frame-to-frame with no flicker — see [how the algorithm handles animations](#videos-and-gifs-1) for details.
 
 ```bash
-ppa <input.mp4|input.gif> -o <output_path> -c <num_colors>
+ppa <input.mp4|input.gif> -o <output_path> -c <palette_size>
 ```
 
 The output format follows the output extension (e.g. `-o out.mp4` converts a GIF to MP4), and all the pixelation options and `--config` from the table above apply.
@@ -227,10 +229,8 @@ Two extra options apply to video/GIF inputs (they are ignored for images):
 
 | Option                          | Description                                                                  |
 | ------------------------------- | ---------------------------------------------------------------------------- |
-| `-f`, `--format` `<mp4\|gif>`   | Output format. (default: inferred from output, then input, extension)        |
+| `-f`, `--format` `<mp4\|gif>`   | Output format. (default: gif; a `.mp4`/`.gif` output path wins)              |
 | `-n`, `--sample-frames` `<int>` | Frames sampled for mesh and palette detection. (default: 8)                  |
-
-The `ppa-video` command is a deprecated alias for `ppa`, kept for compatibility.
 
 GIF input is decoded with full frame compositing (variable-size delta frames, per-frame durations, and transparency are preserved). GIF output uses a single global palette.
 
@@ -242,51 +242,65 @@ For Python developers who want to integrate this tool into their own code.
 
 ```python
 from PIL import Image
-from proper_pixel_art import pixelate
+from proper_pixel_art import PixelateConfig, pixelate
 
-image = Image.open("path/to/input.png")
-result = pixelate(image, num_colors=16)
-result.save("path/to/output.png")
+config = PixelateConfig.from_dict(
+    {"colors": {"method": "palette", "palette": {"num_colors": 16}}}
+)
+result = pixelate(Image.open("path/to/input.png"), config=config)
+result.image.save("path/to/output.png")
 ```
 
 Videos and GIFs have their own entry point:
 
 ```python
-from proper_pixel_art.video import pixelate_video
+from proper_pixel_art import pixelate_video
 
-pixelate_video("input.mp4", "output.gif", num_colors=16)
+pixelate_video("input.mp4", "output.gif", config=config)
 ```
 
 #### Parameters
 
-The keyword arguments mirror the CLI options table above: `num_colors` (`-c`), `scale_result` (`-s`), `transparent_background` (`-t`), `initial_upscale_factor` (`-u`), `pixel_width` (`-w`), and `intermediate_dir` (`--intermediate-dir`). In addition:
+All tuning lives in the config object (see [Configuration file](#configuration-file)); build one with `PixelateConfig(...)`, `PixelateConfig.from_dict(...)`, or `PixelateConfig.from_yaml(path)`, or omit it for the defaults.
 
-- `image` : `PIL.Image.Image` — the image to pixelate.
-- `config` : `PixelateConfig | None` — a bundle of every tunable parameter, loaded with `PixelateConfig.from_yaml(path)` (see [Configuration file](#configuration-file)). Explicit arguments override matching values in `config`.
+- `image` / `input_path` — the PIL image (`pixelate`) or video/GIF path (`pixelate_video`) to pixelate.
+- `config` : `PixelateConfig | None` — a bundle of every tunable parameter.
+- `intermediate_dir` : `Path | None` — directory to save images visualizing intermediate algorithm steps.
+- `output_path` (`pixelate_video` only) — output file or directory; its `.mp4`/`.gif` suffix selects the format, otherwise `config.video.output_format` applies.
 
 #### Returns
 
-A PIL image with true pixel resolution and quantized colors.
+`pixelate` returns a `PixelateResult` with:
+
+- `image` — the true-resolution PIL image.
+- `mesh` — the detected `(lines_x, lines_y)` pixel-grid coordinates.
+- `pixel_width` — the input-image pixel width used (detected or configured).
+- `upscale_factor` — the internal upscale factor `mesh`/`pixel_width` are expressed in; divide by it for original-image coordinates.
+
+`pixelate_video` returns the output file `Path`.
 
 ### Configuration file
 
-All tunable parameters can be collected in a YAML file so you can fine-tune the algorithm without changing code — including the deeper mesh-detection (Canny, Hough, line clustering) and color (alpha/transparency thresholds, quantization method, color binning) settings not exposed as CLI flags or direct arguments. See [`config.example.yaml`](config.example.yaml) for the full list of keys with their defaults. Any key you omit falls back to the default, so partial files are fine.
+All tunable parameters can be collected in a YAML file so you can fine-tune the algorithm without changing code — including the deeper mesh-detection (Canny, Hough, line clustering) and color settings (the `colors.method` quantization-method selector with its `palette` and `dominant` sub-sections, plus alpha/transparency thresholds) not exposed as CLI flags or direct arguments. See [`config.example.yaml`](config.example.yaml) for the full list of keys with their defaults. Any key you omit falls back to the default, so partial files are fine.
 
 ```python
 from PIL import Image
-from proper_pixel_art import pixelate
-from proper_pixel_art.config import PixelateConfig
+from proper_pixel_art import PixelateConfig, pixelate
 
 config = PixelateConfig.from_yaml("config.yaml")
 result = pixelate(Image.open("input.png"), config=config)
+result.image.save("output.png")
 ```
 
 From the CLI, pass `--config`. Flags given explicitly override values from the file:
 
 ```bash
 ppa input.png --config config.yaml      # use the file
-ppa input.png --config config.yaml -c 8 # but override num_colors to 8
+ppa input.png --config config.yaml -c 8 # but override to an 8-color palette
 ```
+
+Configs written for releases before 2.0.0 may need key renames — see
+[`CHANGELOG.md`](CHANGELOG.md) for the full migration list.
 
 ## Real Images To Pixel Art
 
@@ -332,17 +346,17 @@ Here's a step-by-step overview, applied to this GPT-4o-generated blob:
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/closed_edges.png" width="80%" alt="blob closed edges"/>
 
-5) Take the [probabilistic Hough transform](https://docs.opencv.org/4.x/d3/de6/tutorial_js_houghlines.html) to get the coordinates of lines in the detected edges. Only keep lines that are close to vertical or horizontal giving some grid coordinates. Cluster lines that are closeby together.
+5) Take the [probabilistic Hough transform](https://docs.opencv.org/4.x/d3/de6/tutorial_js_houghlines.html) to get the coordinates of lines in the detected edges. Only keep lines that are close to vertical or horizontal giving some grid coordinates. Cluster lines that are closeby together, then snap each detected line to the nearest peak of a gradient projection profile (the image's gradient magnitude summed along each axis, which peaks at pixel boundaries).
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/lines.png" width="80%" alt="blob lines"/>
 
-6) Find the grid spacing by filtering outliers and taking the median of the spacings, then complete the mesh.
+6) Estimate the grid spacing per axis from the median gap between detected lines when there are enough of them, otherwise from the spacing of profile peaks or the autocorrelation period of the profile and reconcile the two axes into one pixel width (pixels are assumed square; a wildly larger axis is distrusted). The estimate is then validated by reconstruction error: candidate widths are scored by the within-cell color variance of their meshes, and the estimate is replaced only when another estimator's width scores decisively better (this catches e.g. locking on to twice the true pixel width). Finally, complete the mesh by evenly subdividing the gaps between detected lines, snapping each interpolated line to a nearby profile peak.
 
 <img src="https://raw.githubusercontent.com/KennethJAllen/proper-pixel-art/main/assets/blob/mesh.png" width="80%" alt="blob mesh"/>
 
-7) Quantize the original image to a small number of colors (see the `num_colors` tuning note above).
+7) Process the colors with one of two methods, selected by `colors.method` (`--color-method`): `palette` quantizes the original image to a small number of colors (see the `--colors` tuning note above), while `dominant` (the default) preserves the original colors.
 
-8) In each cell specified by the mesh, choose the most common color in the cell as the color for the pixel. Recreate the original image with one pixel per cell.
+8) In each cell specified by the mesh, choose a representative color for the pixel: the most common quantized color (palette method) or the dominant color by offset binning (dominant method). Recreate the original image with one pixel per cell. With the dominant method, near-duplicate output colors are then merged (agglomerative clustering with a distance cutoff) so flat areas collapse to a single color.
 
     - Result upscaled by a factor of $20 \times$ using nearest neighbor.
 
