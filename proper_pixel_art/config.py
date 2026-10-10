@@ -85,9 +85,7 @@ class MeshConfig:
     width_replace_tolerance: float = (
         0.2  # on correction, accept a replacement scoring within (1 + this) x the best
     )
-    profile_width_min_gaps: int = (
-        5  # fewer Hough gaps than this -> profile width estimate
-    )
+    profile_width_min_gaps: int = 5  # fewer gaps between interior Hough detections than this -> profile width estimate
     split_leftover_fraction: float = (
         0.4  # leftover fraction of pixel width that earns an extra grid line
     )

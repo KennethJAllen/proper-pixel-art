@@ -11,6 +11,7 @@ from PIL import Image
 
 from proper_pixel_art import pixelate, utils
 from proper_pixel_art.config import PixelateConfig
+from proper_pixel_art.mesh import PixelWidthDetectionError
 
 # Inputs with these suffixes are dispatched to the video pipeline; everything
 # else is treated as a still image. GIFs always take the video path, which
@@ -318,20 +319,25 @@ def main(argv: list[str] | None = None) -> None:
         intermediate_dir = intermediate_dir / input_path.stem
         intermediate_dir.mkdir(parents=True, exist_ok=True)
 
-    if input_path.suffix.lower() in VIDEO_SUFFIXES:
-        # Deferred import so image runs don't pay the cv2 import cost.
-        from proper_pixel_art import video
+    try:
+        if input_path.suffix.lower() in VIDEO_SUFFIXES:
+            # Deferred import so image runs don't pay the cv2 import cost.
+            from proper_pixel_art import video
 
-        video.pixelate_video(
-            input_path=input_path,
-            output_path=Path(args.out_path),
-            config=config,
-            intermediate_dir=intermediate_dir,
-        )
-        return
+            video.pixelate_video(
+                input_path=input_path,
+                output_path=Path(args.out_path),
+                config=config,
+                intermediate_dir=intermediate_dir,
+            )
+            return
 
-    img = Image.open(input_path)
-    pixelated = pixelate(img, config=config, intermediate_dir=intermediate_dir).image
+        img = Image.open(input_path)
+        pixelated = pixelate(
+            img, config=config, intermediate_dir=intermediate_dir
+        ).image
+    except PixelWidthDetectionError as exc:
+        parser.error(f"{exc} Use --pixel-width to specify the source pixel width.")
 
     width, height = pixelated.size
 

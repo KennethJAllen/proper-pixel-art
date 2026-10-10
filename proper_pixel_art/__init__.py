@@ -13,6 +13,7 @@ from proper_pixel_art.config import (
     VideoConfig,
 )
 from proper_pixel_art.image import PixelateResult, pixelate
+from proper_pixel_art.mesh import PixelWidthDetectionError
 
 try:
     __version__ = _version("proper-pixel-art")
@@ -34,6 +35,7 @@ __all__ = [
     "pixelate",
     "pixelate_video",
     "PixelateResult",
+    "PixelWidthDetectionError",
     "PixelateConfig",
     "MeshConfig",
     "ColorConfig",

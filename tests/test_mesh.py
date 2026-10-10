@@ -217,7 +217,7 @@ def test_estimate_width_by_autocorrelation_degenerate_profiles():
 
 def test_estimate_axis_width_prefers_hough_gaps():
     """With enough gaps the Hough median wins even against a profile."""
-    lines = [0, 10, 20, 30, 40, 50]  # 5 gaps of 10
+    lines = [0, 10, 20, 30, 40, 50, 60, 70]  # 5 interior gaps of 10
     # Precomputed profile estimate would say 7; Hough gaps still win.
     assert mesh.estimate_axis_width(lines, 7, None, MeshConfig()) == 10
 
@@ -454,3 +454,144 @@ def test_detect_mesh_lines_handles_both_hough_shapes(
 
     assert 30 in lines_x
     assert 50 in lines_y
+
+
+@pytest.mark.parametrize("axis", [0, 1])
+def test_detection_clusters_only_interior_lines(monkeypatch, axis):
+    coords = [-1, 0, 0, 1, 2, 3, 4, 5, 94, 95, 96, 97, 98, 99, 99, 100]
+    segments = [[v, 0, v, 80] if axis == 0 else [0, v, 80, v] for v in coords]
+    monkeypatch.setattr(mesh.cv2, "HoughLinesP", lambda *a, **k: np.array(segments))
+    lines = mesh.detect_mesh_lines(np.zeros((100, 100), dtype=np.uint8))[axis]
+    assert lines == [0, 3, 96, 99]
+    snapped = mesh.snap_anchor_lines(lines, np.zeros(100))
+    assert snapped == lines
+
+
+@pytest.mark.parametrize("bounds", [(0, 99), (-100, 500)])
+@pytest.mark.parametrize("count", [5, 6])
+def test_axis_width_uses_only_interior_gaps(bounds, count):
+    lines = [bounds[0], *range(10, 10 + count * 10, 10), bounds[1]]
+    assert mesh.estimate_axis_width(lines, 7, 5) == (10 if count == 6 else 7)
+    assert mesh.estimate_axis_width(lines, None, 5) == (10 if count == 6 else 5)
+    assert mesh.estimate_axis_width(lines, None, None) == (10 if count == 6 else None)
+
+
+@pytest.mark.parametrize(
+    "detected, expected",
+    [
+        (([0, 99], [0, 79]), None),
+        (([0, 10, 99], [0, 20, 79]), None),
+        (([0, 10, 18, 99], [0, 20, 32, 79]), 10),
+        (([0, 10, 18, 99], [0, 79]), 8),
+    ],
+)
+def test_pooled_fallback_excludes_coverage_bounds(monkeypatch, detected, expected):
+    monkeypatch.setattr(mesh, "detect_mesh_lines", lambda *a: detected)
+    edges = np.zeros((80, 100), dtype=np.uint8)
+    if expected is None:
+        with pytest.raises(mesh.PixelWidthDetectionError, match="pixel_width"):
+            mesh.compute_mesh_from_edges(edges)
+    else:
+        _, width = mesh.compute_mesh_from_edges(edges)
+        assert width == expected
+
+
+@pytest.mark.parametrize("profile", [None, np.zeros(100)])
+def test_homogenize_preserves_narrow_outer_gaps(profile):
+    lines = mesh.homogenize_lines([0, 1, 11, 21, 22], 10, profile=profile)
+    assert lines == [0, 1, 11, 22]
+    assert all(a < b for a, b in zip(lines[:-1], lines[1:], strict=True))
+
+
+def test_texture_extent_survives_complete_pipeline():
+    from tests.synthetic_mesh import synthetic_cases
+
+    case = next(c for c in synthetic_cases() if c[0] == "texture-0-10")
+    img = case[3].convert("RGBA")
+    lines, scale, _ = mesh.compute_mesh_with_scaling(img)
+    crop = MeshConfig().crop_border_pixels
+    for axis, size in zip(lines, img.size, strict=True):
+        assert (axis[0], axis[-1]) == (0, size * scale - 2 * crop - 1)
+        assert all(a < b for a, b in zip(axis[:-1], axis[1:], strict=True))
+
+
+@pytest.mark.parametrize("video_mode", [False, True])
+@pytest.mark.parametrize("fallback_succeeds", [False, True])
+def test_missing_evidence_retries_at_original_scale(
+    monkeypatch, video_mode, fallback_succeeds
+):
+    from proper_pixel_art import video
+
+    sizes = []
+
+    def detect(edges, **kwargs):
+        sizes.append(edges.shape)
+        if len(sizes) == 1 or not fallback_succeeds:
+            raise mesh.PixelWidthDetectionError("Set pixel_width explicitly")
+        return ([0, 5, 10, 15], [0, 5, 10, 15]), 5
+
+    monkeypatch.setattr(mesh, "compute_mesh_from_edges", detect)
+    img = Image.new("RGBA", (40, 30))
+
+    def run():
+        return (
+            video.compute_video_mesh([img])
+            if video_mode
+            else mesh.compute_mesh_with_scaling(img)
+        )
+
+    if fallback_succeeds:
+        assert run()[1] == 1
+    else:
+        with pytest.raises(mesh.PixelWidthDetectionError, match="pixel_width"):
+            run()
+    crop = MeshConfig().crop_border_pixels * 2
+    assert sizes == [(60 - crop, 80 - crop), (30 - crop, 40 - crop)]
+
+
+@pytest.mark.parametrize("video_mode", [False, True])
+def test_flat_input_requires_explicit_width(video_mode):
+    from proper_pixel_art import video
+
+    img = Image.new("RGBA", (40, 30), "white")
+
+    def run(**kwargs):
+        return (
+            video.compute_video_mesh([img], **kwargs)
+            if video_mode
+            else mesh.compute_mesh_with_scaling(img, **kwargs)
+        )
+
+    with pytest.raises(mesh.PixelWidthDetectionError, match="pixel_width"):
+        run()
+    assert run(pixel_width=5)[1] == 2
+
+
+def test_homogenize_duplicate_bounds_are_not_repeated():
+    assert mesh.homogenize_lines([0, 0, 1, 11, 12, 12], 10) == [0, 1, 12]
+
+
+def test_anchor_snapping_pins_bounds_with_nearby_peaks():
+    profile = np.zeros(100)
+    profile[[1, 98]] = 100
+    assert mesh.snap_anchor_lines([0, 2, 97, 99], profile) == [0, 1, 98, 99]
+
+
+@pytest.mark.parametrize("video_mode", [False, True])
+def test_other_value_errors_do_not_retry(monkeypatch, video_mode):
+    from proper_pixel_art import video
+
+    calls = []
+
+    def detect(*args, **kwargs):
+        calls.append(1)
+        raise ValueError("unrelated failure")
+
+    monkeypatch.setattr(mesh, "compute_mesh_from_edges", detect)
+    img = Image.new("RGBA", (40, 30))
+    with pytest.raises(ValueError, match="unrelated failure"):
+        if video_mode:
+            video.compute_video_mesh([img])
+        else:
+            mesh.compute_mesh_with_scaling(img)
+    assert len(calls) == 1

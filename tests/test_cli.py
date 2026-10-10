@@ -203,3 +203,15 @@ def test_video_main_with_config_yaml(
         assert result.size == (LOGICAL_SIZE * 2, LOGICAL_SIZE * 2)
     # Debug images land in a per-input subdirectory named after the input stem.
     assert (intermediate_dir / gif_path.stem / "mesh.png").is_file()
+
+
+@pytest.mark.parametrize("suffix", [".png", ".gif"])
+def test_missing_spacing_error_is_actionable(tmp_path, capsys, suffix):
+    path = tmp_path / f"flat{suffix}"
+    Image.new("RGB", (40, 30), "white").save(path)
+    with pytest.raises(SystemExit) as exc:
+        cli.main([str(path), "-o", str(tmp_path / "out")])
+    assert exc.value.code == 2
+    error = capsys.readouterr().err
+    assert "--pixel-width" in error
+    assert "Traceback" not in error

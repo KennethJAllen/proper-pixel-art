@@ -14,6 +14,10 @@ from proper_pixel_art.utils import Lines, Mesh
 logger = logging.getLogger(__name__)
 
 
+class PixelWidthDetectionError(ValueError):
+    """Automatic detection found no usable pixel-spacing evidence."""
+
+
 def close_edges(edges: np.ndarray, kernel_size: int) -> np.ndarray:
     """
     Apply a morphological closing to fill small gaps in edge map.
@@ -57,10 +61,10 @@ def detect_mesh_lines(edges: np.ndarray, mesh_config: MeshConfig | None = None) 
     )
 
     height, width = edges.shape
-    # Include the sides of the image in lines since they aren't detected by the Hough transform
-    lines_x, lines_y = [0, width - 1], [0, height - 1]
+    # Coverage bounds are added after clustering interior detections.
+    lines_x, lines_y = [], []
     if hough_lines is None:
-        return lines_x, lines_y
+        return [0, width - 1], [0, height - 1]
 
     angle_threshold_deg = mesh_config.angle_threshold_deg
     # Loop over all detected lines, only keep the ones that are close to vertical or horizontal.
@@ -73,10 +77,16 @@ def detect_mesh_lines(edges: np.ndarray, mesh_config: MeshConfig | None = None) 
         elif angle < np.deg2rad(angle_threshold_deg):
             lines_y.append(round((y1 + y2) / 2))
 
-    # Finally cluster the lines so they aren't too close to each other
-    clustered_lines_x = cluster_lines(lines_x, threshold=mesh_config.cluster_threshold)
-    clustered_lines_y = cluster_lines(lines_y, threshold=mesh_config.cluster_threshold)
-    return clustered_lines_x, clustered_lines_y
+    # Exact-border detections and out-of-bounds coordinates are not evidence.
+    clustered_lines_x = cluster_lines(
+        [v for v in lines_x if 0 < v < width - 1],
+        threshold=mesh_config.cluster_threshold,
+    )
+    clustered_lines_y = cluster_lines(
+        [v for v in lines_y if 0 < v < height - 1],
+        threshold=mesh_config.cluster_threshold,
+    )
+    return [0, *clustered_lines_x, width - 1], [0, *clustered_lines_y, height - 1]
 
 
 def get_pixel_width(
@@ -100,7 +110,12 @@ def get_pixel_width(
     for lines in line_collection:
         gap = np.diff(lines)
         all_gaps.append(gap)
-    gaps = np.concatenate(all_gaps)
+    gaps = np.concatenate(all_gaps) if all_gaps else np.array([])
+    if gaps.size == 0:
+        raise PixelWidthDetectionError(
+            "Cannot detect pixel width: no usable interior gaps or profile estimates. "
+            "Set pixel_width explicitly."
+        )
 
     # Filter lower and upper percentile
     low = np.percentile(gaps, 100 * trim_outlier_fraction)
@@ -285,6 +300,9 @@ def homogenize_lines(
     ``(1 + split_leftover_fraction)`` pixels are split with extra lines.
     With ``profile=None`` the plain even-spacing behavior applies.
     """
+    lines = list(dict.fromkeys(lines))
+    if len(lines) < 2:
+        return lines
     mesh_config = mesh_config or MeshConfig()
     snap = profile is not None and mesh_config.snap_lines and profile.size > 0
     window, min_strength = 0, 0.0  # unused unless snapping
@@ -302,7 +320,7 @@ def homogenize_lines(
             section_width, pixel_width, mesh_config.split_leftover_fraction
         )
         line_start = lines[index]
-        # A section too narrow to hold one pixel drops its anchor line entirely;
+        # A section too narrow to hold one pixel drops its interior anchor;
         # otherwise the anchor is kept as-is and only the interior lines snap.
         section_lines: Lines = []
         if num_pixels > 0:
@@ -318,6 +336,8 @@ def homogenize_lines(
                     snap,
                 ),
             ]
+        if index == 0 and not section_lines:
+            section_lines = [line_start]
         # Replace the start index in completed lines with list of new line coordinates
         # Everything will be unpacked after to maintain indexes
         complete_lines[index] = section_lines
@@ -461,8 +481,8 @@ def estimate_axis_width(
     Estimate the pixel width along a single axis.
 
     Prefers the Hough gap median when the axis has enough detected gaps for a
-    stable estimate (border lines are always seeded, so the count is interior
-    gaps plus one); otherwise falls back to the profile peak-spacing estimate,
+    stable estimate (only gaps between interior detections count); otherwise
+    falls back to the profile peak-spacing estimate,
     then to the autocorrelation estimate. ``peak_estimate`` and
     ``auto_estimate`` are the precomputed
     :func:`estimate_width_from_profile` / :func:`estimate_width_by_autocorrelation`
@@ -470,10 +490,11 @@ def estimate_axis_width(
     can reuse them elsewhere. Returns None when no estimator produces a width.
     """
     mesh_config = mesh_config or MeshConfig()
-    num_gaps = max(len(lines) - 1, 0)
-    if num_gaps >= mesh_config.profile_width_min_gaps:
+    interior = lines[1:-1]
+    num_gaps = max(len(interior) - 1, 0)
+    if num_gaps > 0 and num_gaps >= mesh_config.profile_width_min_gaps:
         return get_pixel_width(
-            [lines], trim_outlier_fraction=mesh_config.trim_outlier_fraction
+            [interior], trim_outlier_fraction=mesh_config.trim_outlier_fraction
         )
     if peak_estimate is not None:
         return peak_estimate
@@ -721,10 +742,11 @@ def compute_mesh_from_edges(
         width_y = estimate_axis_width(lines_y, peak_y, auto_y, mesh_config)
         pixel_width = resolve_pixel_width(width_x, width_y, mesh_config)
         if pixel_width is None:
-            # Last resort: pooled gap median across both axes (border lines
-            # are always seeded, so there is at least one gap per axis).
+            # Last resort: pool even sparse interior gaps across both axes.
+            # Coverage bounds never supply spacing evidence.
             pixel_width = get_pixel_width(
-                mesh_initial, trim_outlier_fraction=mesh_config.trim_outlier_fraction
+                [lines_x[1:-1], lines_y[1:-1]],
+                trim_outlier_fraction=mesh_config.trim_outlier_fraction,
             )
         if mesh_config.validate_width and score_image is not None and pixel_width >= 2:
             candidates = [
@@ -838,7 +860,7 @@ def compute_mesh_with_scaling(
     """
     Try to compute the mesh on on the image.
     First upscale the image with a given upscale factor
-    If that yields only the trivial mesh lines, try to compute the mesh on
+    If that yields no spacing evidence or only trivial mesh lines, compute on
     the original image instead.
     Returns the mesh line coordinates, the scale factor used, and the pixel
     width used (in the returned mesh's upscaled coordinates).
@@ -847,14 +869,17 @@ def compute_mesh_with_scaling(
     upscaled_pixel_width = (
         pixel_width * upscale_factor if pixel_width is not None else None
     )
-    mesh_lines, used_width = compute_mesh(
-        upscaled_img,
-        intermediate_dir=intermediate_dir,
-        pixel_width=upscaled_pixel_width,
-        mesh_config=mesh_config,
-    )
-    if not is_trivial_mesh(mesh_lines):
-        return mesh_lines, upscale_factor, used_width
+    try:
+        mesh_lines, used_width = compute_mesh(
+            upscaled_img,
+            intermediate_dir=intermediate_dir,
+            pixel_width=upscaled_pixel_width,
+            mesh_config=mesh_config,
+        )
+        if not is_trivial_mesh(mesh_lines):
+            return mesh_lines, upscale_factor, used_width
+    except PixelWidthDetectionError:
+        pass
 
     # If no mesh is found, then use the original image instead.
     fallback_mesh_lines, fallback_width = compute_mesh(

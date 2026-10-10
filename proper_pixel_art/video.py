@@ -113,7 +113,7 @@ def compute_video_mesh(
 ) -> tuple[Mesh, int]:
     """
     Compute a master mesh for a video from sampled frames.
-    Falls back to upscale_factor=1 if the upscaled mesh is trivial.
+    Falls back to upscale_factor=1 if the upscaled mesh is trivial or has no spacing evidence.
 
     Args:
         frames: Sampled RGBA frames (all the same size)
@@ -146,19 +146,22 @@ def compute_video_mesh(
     upscaled_pixel_width = (
         pixel_width * upscale_factor if pixel_width is not None else None
     )
-    mesh_lines, _ = mesh.compute_mesh_from_edges(
-        aggregated,
-        pixel_width=upscaled_pixel_width,
-        intermediate_dir=intermediate_dir,
-        original_img=representative,
-        mesh_config=mesh_config,
-        profiles=_edge_density_profiles(aggregated),
-        # A stack rather than a mean: averaging frames with moving content
-        # washes out the spatial structure that width scoring depends on.
-        score_image=np.stack(greys),
-    )
-    if not mesh.is_trivial_mesh(mesh_lines):
-        return mesh_lines, upscale_factor
+    try:
+        mesh_lines, _ = mesh.compute_mesh_from_edges(
+            aggregated,
+            pixel_width=upscaled_pixel_width,
+            intermediate_dir=intermediate_dir,
+            original_img=representative,
+            mesh_config=mesh_config,
+            profiles=_edge_density_profiles(aggregated),
+            # A stack rather than a mean: averaging frames with moving content
+            # washes out the spatial structure that width scoring depends on.
+            score_image=np.stack(greys),
+        )
+        if not mesh.is_trivial_mesh(mesh_lines):
+            return mesh_lines, upscale_factor
+    except mesh.PixelWidthDetectionError:
+        pass
 
     # Fallback: try without upscaling. This overwrites the debug images from the
     # attempt above, which is fine — the fallback mesh is the one we return.

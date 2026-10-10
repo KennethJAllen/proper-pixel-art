@@ -7,6 +7,13 @@ truth, with the sentinel shorthands and pre-1.8 compatibility layers removed.
 
 ### Python API
 
+- Automatic mesh detection treats cropped image borders as fixed coverage bounds,
+  excluding their adjacent gaps from width estimates. `mesh.profile_width_min_gaps`
+  (default 5) counts only gaps between interior detections. Images and videos with
+  no usable interior gaps or profile estimates retry at original scale, then raise
+  `PixelWidthDetectionError` (a `ValueError`, exported from the package root).
+  Set `pixel_width` explicitly or pass `--pixel-width` in the CLI for such inputs.
+
 - `pixelate()` and `pixelate_video()` are config-only: all tuning kwargs
   (`num_colors`, `scale_result`, `transparent_background`, `pixel_width`,
   `initial_upscale_factor`, `output_format`, `num_sample_frames`) are gone.
