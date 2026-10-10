@@ -8,8 +8,9 @@ uv run pytest tests/test_mesh_benchmark.py --run-mesh-benchmark --mesh-report-di
 
 Ordinary `uv run pytest` deselects these cases. When explicitly enabled, quality
 failures are normal pytest failures with a nonzero exit status. CI runs them in a
-separate job with `continue-on-error: true`; they do not fail the workflow. Keep
-this advisory job out of required branch-protection checks. Existing unit tests
+separate job with `continue-on-error: true` on the benchmark step; quality failures
+do not fail the job or workflow, but setup and dependency-installation failures do.
+Keep this advisory job out of required branch-protection checks. Existing unit tests
 continue to gate normally, including tests of the reporting logic.
 
 The terminal and GitHub Actions job summary show counts and pass rates by family,
