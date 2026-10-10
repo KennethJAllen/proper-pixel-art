@@ -35,7 +35,7 @@ def crop_border(image: Image.Image, num_pixels: int = 1) -> Image.Image:
     return cropped
 
 
-def overlay_grid_lines(
+def overlay_mesh_lines(
     image: Image.Image,
     mesh: Mesh,
     line_color: tuple[int, int, int] = (255, 0, 0),
@@ -45,18 +45,15 @@ def overlay_grid_lines(
     Overlay mesh which includes vertical (lines_x) and horizontal (lines_y) grid lines
     over image for visualization.
     """
-    # Ensure we draw on an RGBA canvas
     canvas = image.convert("RGBA")
     draw = ImageDraw.Draw(canvas)
 
     lines_x, lines_y = mesh
 
     w, h = canvas.size
-    # Draw each vertical line
     for x in lines_x:
         draw.line([(x, 0), (x, h)], fill=(*line_color, 255), width=line_width)
 
-    # Draw each horizontal line
     for y in lines_y:
         draw.line([(0, y), (w, y)], fill=(*line_color, 255), width=line_width)
 

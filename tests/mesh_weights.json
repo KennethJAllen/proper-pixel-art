@@ -1,0 +1,11 @@
+{
+  "clean": 20,
+  "blur": 20,
+  "noise": 20,
+  "sparse": 10,
+  "stripes": 4,
+  "checker": 4,
+  "texture": 2,
+  "lowcontrast": 10,
+  "offset": 10
+}

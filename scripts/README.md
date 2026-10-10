@@ -11,7 +11,7 @@ Generate pixel art images using OpenAI's gpt-image-2 API and automatically pixel
 #### Install Dependencies
 
 ```bash
-uv sync --extra scripts
+uv sync --group scripts
 ```
 
 #### Configure Environment
@@ -56,8 +56,9 @@ uv run python scripts/ppa_gen.py \
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-c`, `--colors` | int | None | Number of colors (1-256). Omit to preserve all colors |
-| `-s`, `--scale-result` | int | 1 | Width of each pixel in output image |
+| `--color-method` | str | dominant | `dominant` preserves the original colors, `palette` quantizes |
+| `-c`, `--colors` | int | None | Palette size (1-256); implies `--color-method palette` |
+| `-s`, `--scale-result` | int | None | Upscale the result by this factor (omit for no scaling) |
 | `-t`, `--transparent` | flag | False | Produce transparent background |
 | `-w`, `--pixel-width` | int | None | Width of pixels in input (auto-detected if omitted) |
 | `-u`, `--initial-upscale` | int | 2 | Initial upscale factor for mesh detection |
