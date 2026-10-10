@@ -16,7 +16,6 @@ jobs:
     name: Synthetic mesh quality (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Install uv
@@ -27,6 +26,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
       - name: Evaluate synthetic meshes
+        continue-on-error: true
         run: uv run pytest tests/test_mesh_benchmark.py --run-mesh-benchmark --mesh-report-dir=mesh-report -q --tb=short
       - name: Publish quality summary
         if: always()
